@@ -6,19 +6,19 @@ The core idea: different education×industry segments have different WFH propens
 
 ## Installation
 
-Clone the repo and install in editable mode with geo dependencies (required for H3 spatial conversion from Census tracts):
+Clone the repo and install in editable mode:
 
 ```bash
 git clone git@github.com:johnameluso/utech-wfh-perturbation.git
 cd utech-wfh-perturbation
-pip install -e ".[hex]"
+pip install -e .
 ```
 
-If you prefer conda for the geo stack:
+This installs all dependencies including geopandas and h3 (required for H3 spatial conversion from Census tracts). If pip has trouble building the geo stack, you can install those two via conda first:
 
 ```bash
-pip install -e .
 conda install -c conda-forge geopandas h3
+pip install -e .
 ```
 
 ### Census API Key

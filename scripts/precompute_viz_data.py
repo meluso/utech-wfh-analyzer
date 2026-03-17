@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Precomputation script for the WFH Perturbation Visualization Tool.
 
-Fetches Census demographics and LODES commute flows for a study area (default:
-Queens County, NY — FIPS 36081), converts to H3 hex level, runs an alpha sweep,
-and writes the output files needed by the React frontend.
+Fetches Census demographics and LODES commute flows for a study area defined
+by one or more counties (default: Queens 36081 + Manhattan 36061), converts to
+H3 hex level, runs an alpha sweep, and writes the output files needed by the
+React frontend. Only flows between tracts within the specified counties are
+included.
 
 Output files (in viz_data/):
     hex_geometries.geojson  — H3 hex boundaries for map rendering / QGIS
@@ -14,8 +16,8 @@ Output files (in viz_data/):
 
 Usage:
     python scripts/precompute_viz_data.py
-    python scripts/precompute_viz_data.py --county-fips 36081 --resolution 7 --alpha-steps 100
-    python scripts/precompute_viz_data.py --output-dir viz_data --cache-dir ~/.wfh_perturbation_cache
+    python scripts/precompute_viz_data.py --counties 36081 36061
+    python scripts/precompute_viz_data.py --counties 48453 --resolution 7 --alpha-steps 50
 
 Prerequisites:
     pip install -e .
@@ -90,69 +92,21 @@ def fetch_county_tracts(
     return tracts
 
 
-def identify_destination_tracts(
-    origin_tracts: List[str],
-    lodes_year: int = 2023,
-    cache_dir: Optional[str] = None,
+def fetch_multi_county_tracts(
+    counties: List[Tuple[str, str]],
+    api_key: str,
+    year: int = 2024,
 ) -> List[str]:
-    """Find destination tracts that origin-tract residents commute to.
+    """Fetch all tract FIPS codes for a list of (state_fips, county_fips) pairs.
 
-    Fetches LODES OD data with a wider filter: keeps any pair where at
-    least one endpoint is an origin tract. Returns the full set of tracts
-    (origins + destinations).
+    The study area is defined explicitly by the counties you pass in.
+    No automatic destination discovery is performed.
     """
-    from wfh_perturbation.fips import get_states_for_tracts, get_state_abbr
-    from wfh_perturbation.cache import cache_get_path, cache_put_bytes
-
-    import pandas as pd
-
-    origin_set = set(origin_tracts)
-    states = get_states_for_tracts(origin_tracts)
-    dest_tracts = set()
-
-    for state_fips in states:
-        state_abbr = get_state_abbr(state_fips)
-        cache_key = f"lodes_od_{state_abbr}_{lodes_year}.csv.gz"
-        cached_path = cache_get_path(cache_key, cache_dir=cache_dir)
-
-        if cached_path is None:
-            import requests as req
-            url = (
-                f"https://lehd.ces.census.gov/data/lodes/LODES8/"
-                f"{state_abbr}/od/{state_abbr}_od_main_JT00_{lodes_year}.csv.gz"
-            )
-            logger.info(f"Downloading LODES OD for destination discovery: {url}")
-            resp = req.get(url, timeout=600)
-            resp.raise_for_status()
-            cached_path = cache_put_bytes(cache_key, resp.content, cache_dir=cache_dir)
-
-        logger.info(f"Scanning OD file for destination tracts (state {state_abbr})...")
-        reader = pd.read_csv(
-            cached_path,
-            compression="gzip",
-            dtype=str,
-            usecols=["w_geocode", "h_geocode", "S000"],
-            chunksize=200_000,
-        )
-
-        for chunk in reader:
-            chunk["res_tract"] = chunk["w_geocode"].str[:11]
-            chunk["work_tract"] = chunk["h_geocode"].str[:11]
-
-            # Keep rows where the residence tract is in our origin set
-            mask = chunk["res_tract"].isin(origin_set)
-            filtered = chunk[mask]
-            if not filtered.empty:
-                dest_tracts.update(filtered["work_tract"].unique())
-
-    # Combine origins and destinations
-    all_tracts = sorted(set(origin_tracts) | dest_tracts)
-    n_dest_only = len(dest_tracts - set(origin_tracts))
-    logger.info(
-        f"Study area: {len(origin_tracts)} origin tracts + "
-        f"{n_dest_only} destination-only tracts = {len(all_tracts)} total"
-    )
-    return all_tracts
+    all_tracts = []
+    for state_fips, county_fips in counties:
+        tracts = fetch_county_tracts(state_fips, county_fips, api_key, year)
+        all_tracts.extend(tracts)
+    return sorted(set(all_tracts))
 
 
 # ============================================================
@@ -331,9 +285,12 @@ def run_alpha_sweep(
 
         all_hexes = set(hex_inbound_T.keys()) | set(hex_outbound_T.keys())
         hex_net_change = {}
+        hex_abs_change = {}
         for h in all_hexes:
             total_t = hex_inbound_T.get(h, 0.0) + hex_outbound_T.get(h, 0.0)
             total_g = hex_inbound_G.get(h, 0.0) + hex_outbound_G.get(h, 0.0)
+            # Absolute change in trips (signed: negative = fewer trips)
+            hex_abs_change[h] = round(total_g - total_t, 1)
             if total_t > 0:
                 hex_net_change[h] = round((total_g - total_t) / total_t, 6)
             else:
@@ -349,6 +306,7 @@ def run_alpha_sweep(
             "Omega_ij": omega_ij_arr,
             "Omega_ji": omega_ji_arr,
             "hex_net_change": hex_net_change,
+            "hex_abs_change": hex_abs_change,
         })
 
     return {
@@ -468,12 +426,12 @@ def main():
         description="Precompute visualization data for the WFH Perturbation Tool."
     )
     parser.add_argument(
-        "--state-fips", default="36",
-        help="2-digit state FIPS code (default: 36 for New York)",
-    )
-    parser.add_argument(
-        "--county-fips", default="081",
-        help="3-digit county FIPS code (default: 081 for Queens County)",
+        "--counties", nargs="+", default=["36081", "36061"],
+        help=(
+            "5-digit state+county FIPS codes defining the study area. "
+            "Default: 36081 (Queens) and 36061 (Manhattan). "
+            "Only flows between tracts in these counties are included."
+        ),
     )
     parser.add_argument(
         "--resolution", type=int, default=7,
@@ -529,15 +487,18 @@ def main():
     logger.info("Step 1: Identifying tracts in the study area")
     logger.info("=" * 60)
 
-    origin_tracts = fetch_county_tracts(
-        args.state_fips, args.county_fips, api_key, year=args.acs_year
-    )
+    # Parse county FIPS codes (5-digit: 2 state + 3 county)
+    counties = []
+    for code in args.counties:
+        if len(code) != 5:
+            parser.error(f"County FIPS must be 5 digits (state+county), got: {code}")
+        counties.append((code[:2], code[2:]))
 
-    logger.info("Discovering destination tracts from LODES OD data...")
-    all_tracts = identify_destination_tracts(
-        origin_tracts,
-        lodes_year=args.lodes_year,
-        cache_dir=args.cache_dir,
+    county_labels = ", ".join(args.counties)
+    logger.info(f"Study area counties: {county_labels}")
+
+    all_tracts = fetch_multi_county_tracts(
+        counties, api_key, year=args.acs_year
     )
 
     # ---- Step 2: Prepare hex-level data ----
@@ -652,9 +613,8 @@ def main():
     logger.info("=" * 60)
     logger.info("DONE — Precomputation summary")
     logger.info("=" * 60)
-    logger.info(f"  Study area:     state={args.state_fips}, county={args.county_fips}")
-    logger.info(f"  Origin tracts:  {len(origin_tracts)}")
-    logger.info(f"  Total tracts:   {len(all_tracts)} (incl. destination tracts)")
+    logger.info(f"  Study area:     counties={county_labels}")
+    logger.info(f"  Total tracts:   {len(all_tracts)}")
     logger.info(f"  H3 resolution:  {args.resolution}")
     logger.info(f"  Total hexes:    {len(all_hex_ids)}")
     logger.info(f"  OD pairs:       {len(baseline_flows)}")

@@ -13,8 +13,8 @@ import ReactDOM from "react-dom/client";
 import Map from "react-map-gl";
 import DeckGL from "@deck.gl/react";
 import { GeoJsonLayer, ArcLayer } from "@deck.gl/layers";
-import { scaleSequential, scaleDiverging } from "d3-scale";
-import { interpolateRdBu } from "d3-scale-chromatic";
+import { scaleDiverging } from "d3-scale";
+import { interpolateHcl } from "d3-interpolate";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -72,12 +72,17 @@ function usePrecomputedData() {
           centroids[hex_id] = [centroid_lng, centroid_lat];
         }
 
-        // Compute global min/max of hex_net_change across all snapshots
-        // for a stable color scale
+        // Compute global min/max of hex_abs_change (absolute trip change)
+        // across all snapshots, for a stable symmetric color scale.
+        // Falls back to hex_net_change if hex_abs_change is not present
+        // (i.e. if running against older precomputed data).
+        const absField = snapshots.snapshots[0].hex_abs_change
+          ? "hex_abs_change"
+          : "hex_net_change";
         let globalMin = 0;
         let globalMax = 0;
         for (const snap of snapshots.snapshots) {
-          for (const val of Object.values(snap.hex_net_change)) {
+          for (const val of Object.values(snap[absField])) {
             if (val < globalMin) globalMin = val;
             if (val > globalMax) globalMax = val;
           }
@@ -87,7 +92,10 @@ function usePrecomputedData() {
         globalMin = -absMax;
         globalMax = absMax;
 
-        setData({ geojson, snapshots, metadata, centroids, globalMin, globalMax });
+        setData({
+          geojson, snapshots, metadata, centroids,
+          globalMin, globalMax, hexColorField: absField,
+        });
         setLoading(false);
       })
       .catch((err) => {
@@ -100,36 +108,96 @@ function usePrecomputedData() {
 }
 
 // ---------------------------------------------------------------------------
-// Color scale: diverging blue-white-red
+// Color scales: diverging blue (fewer trips) / white / red (more trips)
+//
+// Hex choropleth uses a signed log scale: sign(x) * log(1 + |x|).
+// This compresses the high end so midtown Manhattan doesn't swamp
+// everything else into gray, while still showing meaningful variation
+// in medium-volume hexes. Blue = fewer trips, Red = more trips.
+//
+// Arc color uses a linear diverging scale on (P - 1).
 // ---------------------------------------------------------------------------
 
-function makeColorScale(min, max) {
-  // interpolateRdBu goes red -> white -> blue
-  // We want blue = negative (traffic reduced), red = positive (traffic increased)
-  // So we reverse: value -max -> blue, 0 -> white, +max -> red
+/** Signed log transform: preserves sign, compresses magnitude. */
+function signedLog(x) {
+  return Math.sign(x) * Math.log1p(Math.abs(x));
+}
+
+/**
+ * Piecewise HCL diverging scale matching matplotlib's RdBu color stops.
+ * Uses 11 hand-tuned intermediate colors for smooth, even perceptual
+ * transitions across the full lightness range — no sharp jumps near white.
+ */
+const RDBU_STOPS = [
+  "#053061", // 0.0  dark navy
+  "#2166ac", // 0.1
+  "#4393c3", // 0.2
+  "#92c5de", // 0.3
+  "#d1e5f0", // 0.4
+  "#f7f7f7", // 0.5  white midpoint
+  "#fddbc7", // 0.6
+  "#f4a582", // 0.7
+  "#d6604d", // 0.8
+  "#b2182b", // 0.9
+  "#67001f", // 1.0  dark maroon
+];
+
+// Pre-build piecewise HCL interpolators between adjacent stops
+const RDBU_INTERPS = [];
+for (let i = 0; i < RDBU_STOPS.length - 1; i++) {
+  RDBU_INTERPS.push(interpolateHcl(RDBU_STOPS[i], RDBU_STOPS[i + 1]));
+}
+
+/** Interpolate through the piecewise RdBu ramp. t in [0, 1]. */
+function interpolateRdBuHcl(t) {
+  const tc = Math.max(0, Math.min(1, t));
+  const nSegs = RDBU_INTERPS.length; // 10
+  const idx = Math.min(Math.floor(tc * nSegs), nSegs - 1);
+  const local = tc * nSegs - idx; // 0..1 within this segment
+  return RDBU_INTERPS[idx](local);
+}
+
+function makeDivergingColorScale(min, max) {
   const scale = scaleDiverging()
     .domain([min, 0, max])
-    .interpolator((t) => interpolateRdBu(1 - t)); // reverse RdBu
+    .interpolator(interpolateRdBuHcl);
 
   return (value) => {
     const color = scale(value);
-    // Parse "rgb(r, g, b)" string to [r, g, b]
     const match = color.match(/\d+/g);
     if (match)
       return [parseInt(match[0]), parseInt(match[1]), parseInt(match[2])];
-    return [200, 200, 200];
+    return [220, 220, 220];
   };
 }
 
+/**
+ * Log-scaled diverging color scale for hex choropleth.
+ * Applies sign(x)*log(1+|x|) before mapping to blue-white-red.
+ */
+function makeLogDivergingColorScale(rawMin, rawMax) {
+  const logMin = signedLog(rawMin);
+  const logMax = signedLog(rawMax);
+  const absLogMax = Math.max(Math.abs(logMin), Math.abs(logMax));
+  const innerScale = makeDivergingColorScale(-absLogMax, absLogMax);
+
+  return (value) => innerScale(signedLog(value));
+}
+
 // ---------------------------------------------------------------------------
-// Nearest alpha snapshot index
+// Nearest snapshot by percent change
 // ---------------------------------------------------------------------------
 
-function findNearestAlphaIndex(alphaValues, target) {
+/**
+ * Find the snapshot whose percent_change is closest to the target value.
+ * The slider now operates in percent-change (X) space rather than alpha space,
+ * so we match against each snapshot's stored percent_change.
+ */
+function findNearestPctIndex(snapshots, targetPct) {
   let best = 0;
-  let bestDist = Math.abs(alphaValues[0] - target);
-  for (let i = 1; i < alphaValues.length; i++) {
-    const d = Math.abs(alphaValues[i] - target);
+  let bestDist = Math.abs(snapshots[0].percent_change - targetPct);
+  for (let i = 1; i < snapshots.length; i++) {
+    const d = Math.abs(snapshots[i].percent_change - targetPct);
     if (d < bestDist) {
       best = i;
       bestDist = d;
@@ -202,7 +270,7 @@ function SummaryPanel({ snapshot, PValues }) {
         </span>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-        <span style={{ color: "#94a3b8" }}>Change</span>
+        <span style={{ color: "#94a3b8" }}>Flow change</span>
         <span
           style={{
             fontFamily: "monospace",
@@ -210,12 +278,12 @@ function SummaryPanel({ snapshot, PValues }) {
             color: snapshot.percent_change < 0 ? "#60a5fa" : "#f87171",
           }}
         >
-          {(snapshot.percent_change * 100).toFixed(1)}%
+          {snapshot.percent_change > 0.00005 ? "+" : ""}{(snapshot.percent_change * 100).toFixed(1)}%
         </span>
       </div>
 
       <div style={{ fontWeight: 600, fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>
-        P value distribution
+        Trip multiplier distribution
       </div>
       <svg width={248} height={60}>
         {hist.bins.map((count, i) => (
@@ -251,7 +319,7 @@ function SummaryPanel({ snapshot, PValues }) {
         }}
       >
         <span>0.5</span>
-        <span>P = 1.0</span>
+        <span>No change (1.0)</span>
         <span>1.5</span>
       </div>
       <div style={{ fontSize: 10, color: "#475569", marginTop: 8 }}>
@@ -262,10 +330,175 @@ function SummaryPanel({ snapshot, PValues }) {
 }
 
 // ---------------------------------------------------------------------------
-// Alpha Slider
+// Color Legend (hex choropleth)
 // ---------------------------------------------------------------------------
 
-function AlphaSlider({ alpha, alphaMax, onChange, percentChange }) {
+/** Inverse of signedLog: recover raw value from log-transformed value. */
+function inverseSignedLog(y) {
+  return Math.sign(y) * (Math.exp(Math.abs(y)) - 1);
+}
+
+/**
+ * Generate tick values at powers of 10, both positive and negative,
+ * up to the data's maximum absolute trip change.
+ */
+function makeLogTicks(absMax) {
+  if (absMax === 0) return [0];
+  const ticks = [0];
+  // Powers of 10: 10, 100, 1k, 10k, 100k
+  for (let exp = 1; exp <= 6; exp++) {
+    const v = Math.pow(10, exp);
+    if (v <= absMax * 1.01) {
+      ticks.push(v);
+      ticks.push(-v);
+    }
+  }
+  ticks.sort((a, b) => a - b);
+  return ticks;
+}
+
+function ColorLegend({ rawMin, rawMax, colorFn }) {
+  const BAR_W = 300;
+  const BAR_H = 12;
+
+  const absMax = Math.max(Math.abs(rawMin), Math.abs(rawMax));
+  const logAbsMax = signedLog(absMax);
+
+  // Sample colors at evenly-spaced positions in LOG space, so the
+  // gradient bar shows a smooth, even color ramp. Each position
+  // maps to a log-spaced raw value for the color lookup.
+  const NSTOPS = 64;
+  const stops = [];
+  for (let i = 0; i <= NSTOPS; i++) {
+    const t = i / NSTOPS; // 0..1, linear in log space
+    const logVal = -logAbsMax + 2 * logAbsMax * t;
+    const rawVal = inverseSignedLog(logVal);
+    const color = colorFn(rawVal);
+    stops.push({ t, color: `rgb(${color[0]},${color[1]},${color[2]})` });
+  }
+
+  const ticks = makeLogTicks(absMax);
+
+  // Map a raw value to x position via log transform (matches bar's log axis)
+  const toX = (raw) => {
+    if (logAbsMax === 0) return BAR_W / 2;
+    const logVal = signedLog(raw);
+    return ((logVal + logAbsMax) / (2 * logAbsMax)) * BAR_W;
+  };
+
+  // Format tick labels compactly
+  const fmt = (v) => {
+    const av = Math.abs(v);
+    if (av === 0) return "0";
+    if (av >= 1000) return (v / 1000).toFixed(0) + "k";
+    return v.toFixed(0);
+  };
+
+  // Filter ticks symmetrically: decide which absolute values to keep,
+  // then include both +v and -v for each kept value.
+  const positiveTicks = ticks.filter((v) => v > 0);
+  const keptAbsValues = [];
+  for (const v of positiveTicks) {
+    const x = toX(v);
+    // skip if too close to right edge
+    if (x > BAR_W - 6) continue;
+    // skip if too close to a previously-kept tick
+    let tooClose = false;
+    for (const prev of keptAbsValues) {
+      if (Math.abs(toX(prev) - x) < 24) { tooClose = true; break; }
+    }
+    // also check distance from center (0)
+    if (Math.abs(x - BAR_W / 2) < 16) tooClose = true;
+    if (!tooClose) keptAbsValues.push(v);
+  }
+  const filteredTicks = [0, ...keptAbsValues, ...keptAbsValues.map((v) => -v)].sort((a, b) => a - b);
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        bottom: 16,
+        left: 16,
+        backgroundColor: "rgba(15, 23, 42, 0.92)",
+        borderRadius: 10,
+        padding: "10px 14px 6px 14px",
+        zIndex: 10,
+        backdropFilter: "blur(8px)",
+        color: "#e2e8f0",
+        fontSize: 10,
+      }}
+    >
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 6 }}>
+        Trip change (absolute, log scale)
+      </div>
+      {/* Gradient bar */}
+      <svg width={BAR_W} height={BAR_H} style={{ display: "block" }}>
+        <defs>
+          <linearGradient id="hex-legend-grad">
+            {stops.map((s, i) => (
+              <stop key={i} offset={`${s.t * 100}%`} stopColor={s.color} />
+            ))}
+          </linearGradient>
+        </defs>
+        <rect width={BAR_W} height={BAR_H} rx={3} fill="url(#hex-legend-grad)" />
+      </svg>
+      {/* Tick marks + labels */}
+      <svg width={BAR_W} height={24} style={{ display: "block" }}>
+        {filteredTicks.map((v, i) => {
+          const x = toX(v);
+          return (
+            <g key={i}>
+              <line x1={x} y1={0} x2={x} y2={5} stroke="#64748b" strokeWidth={1} />
+              <text
+                x={x}
+                y={16}
+                textAnchor="middle"
+                fill={v === 0 ? "#e2e8f0" : "#94a3b8"}
+                fontSize={9}
+                fontFamily="monospace"
+                fontWeight={v === 0 ? 700 : 400}
+              >
+                {v > 0 ? "+" : ""}{fmt(v)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#64748b", marginTop: -2 }}>
+        <span>Fewer trips</span>
+        <span>More trips</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Percent Change Slider
+// ---------------------------------------------------------------------------
+
+function PctChangeSlider({ pctChange, pctMin, pctMax, onChange, alpha }) {
+  // pctChange is in demand space (negative = fewer trips = more WFH).
+  // For display we negate so positive = more WFH, and flip the slider
+  // so dragging right increases WFH.
+  const wfhPct = -pctChange;
+
+  // Plain-English description of the current scenario
+  const scenarioLabel =
+    wfhPct > 0.001
+      ? "More WFH \u2192 fewer commute trips"
+      : wfhPct < -0.001
+        ? "Less WFH \u2192 more commute trips"
+        : "No change from baseline";
+
+  // Display value with explicit sign (e.g. 0.05 → "+5.0%", -0.03 → "-3.0%")
+  const rawPct = (wfhPct * 100).toFixed(1);
+  const displayPct = wfhPct > 0.0005 ? `+${rawPct}` : rawPct === "-0.0" ? "0.0" : rawPct;
+
+  // Slider range is negated so right = more WFH (positive wfhPct).
+  // pctMin is most-negative demand change (= most WFH), so it becomes the right end.
+  const sliderMin = -pctMax;  // least WFH (left)
+  const sliderMax = -pctMin;  // most WFH (right)
+
   return (
     <div
       style={{
@@ -281,31 +514,36 @@ function AlphaSlider({ alpha, alphaMax, onChange, percentChange }) {
         display: "flex",
         alignItems: "center",
         gap: 16,
+        flexWrap: "wrap",
       }}
     >
       <div style={{ flex: "0 0 auto", color: "#e2e8f0", fontSize: 13 }}>
         <span style={{ fontWeight: 700, fontFamily: "monospace", fontSize: 15 }}>
-          &alpha; = {alpha.toFixed(2)}
+          {displayPct}%
+        </span>
+        <span style={{ color: "#94a3b8", marginLeft: 6, fontSize: 12 }}>
+          WFH-induced change in travel demand
         </span>
         <span style={{ color: "#94a3b8", marginLeft: 12 }}>
           |{" "}
-          <span
-            style={{
-              color: percentChange < 0 ? "#60a5fa" : "#f87171",
-              fontWeight: 600,
-            }}
-          >
-            {(percentChange * 100).toFixed(1)}% total flow
+          <span style={{ color: "#64748b", fontSize: 11, fontFamily: "monospace" }}>
+            &alpha; = {alpha.toFixed(3)}
+          </span>
+        </span>
+        <span style={{ color: "#94a3b8", marginLeft: 12 }}>
+          |{" "}
+          <span style={{ fontStyle: "italic", color: "#cbd5e1" }}>
+            {scenarioLabel}
           </span>
         </span>
       </div>
       <input
         type="range"
-        min={-1}
-        max={alphaMax}
-        step={0.001}
-        value={alpha}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
+        min={sliderMin * 100}
+        max={sliderMax * 100}
+        step={0.1}
+        value={wfhPct * 100}
+        onChange={(e) => onChange(-parseFloat(e.target.value) / 100)}
         style={{ flex: 1, accentColor: "#6366f1", height: 6 }}
       />
       <div
@@ -317,8 +555,8 @@ function AlphaSlider({ alpha, alphaMax, onChange, percentChange }) {
           color: "#64748b",
         }}
       >
-        <span>-1.0</span>
-        <span>{alphaMax.toFixed(1)}</span>
+        <span>{"\u2190 Less WFH"}</span>
+        <span>{"More WFH \u2192"}</span>
       </div>
     </div>
   );
@@ -507,8 +745,8 @@ function InspectPanel({ hexId, metadata, snapshot, pairKeys, T, Lij, Lji, centro
               <tr style={{ color: "#64748b", borderBottom: "1px solid rgba(100, 116, 139, 0.3)" }}>
                 <th style={{ textAlign: "left", padding: "4px 6px" }}>Partner Hex</th>
                 <th style={{ textAlign: "left", padding: "4px 6px" }}>Dir</th>
-                <th style={{ textAlign: "right", padding: "4px 6px" }}>T</th>
-                <th style={{ textAlign: "right", padding: "4px 6px" }}>P</th>
+                <th style={{ textAlign: "right", padding: "4px 6px" }}>Baseline</th>
+                <th style={{ textAlign: "right", padding: "4px 6px" }}>Multiplier</th>
                 <th style={{ textAlign: "right", padding: "4px 6px" }}>&Delta; Flow</th>
               </tr>
             </thead>
@@ -544,11 +782,11 @@ function InspectPanel({ hexId, metadata, snapshot, pairKeys, T, Lij, Lji, centro
         </div>
       )}
 
-      {/* Section 3: Why This P Value */}
+      {/* Section 3: Trip Multiplier Breakdown */}
       {topPartner && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            Why This P Value
+            Trip Multiplier Breakdown
           </div>
           <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.8, fontFamily: "monospace" }}>
             {(() => {
@@ -570,21 +808,21 @@ function InspectPanel({ hexId, metadata, snapshot, pairKeys, T, Lij, Lji, centro
                     <span style={{ color: "#f59e0b" }}>{dest.slice(0, 9)}...</span>
                   </div>
                   <div style={{ marginBottom: 4 }}>
-                    &Omega;<sub>ij</sub> = {omega_ij.toFixed(4)}
+                    Multiplier (i→j) = {omega_ij.toFixed(4)}
                     <span style={{ color: "#64748b", marginLeft: 8 }}>
-                      (residents {origin.slice(0, 7)}... &rarr; jobs {dest.slice(0, 7)}...)
+                      (residents {origin.slice(0, 7)}... → jobs {dest.slice(0, 7)}...)
                     </span>
                   </div>
                   <div style={{ marginBottom: 4 }}>
-                    &Omega;<sub>ji</sub> = {omega_ji.toFixed(4)}
+                    Multiplier (j→i) = {omega_ji.toFixed(4)}
                     <span style={{ color: "#64748b", marginLeft: 8 }}>
-                      (residents {dest.slice(0, 7)}... &rarr; jobs {origin.slice(0, 7)}...)
+                      (residents {dest.slice(0, 7)}... → jobs {origin.slice(0, 7)}...)
                     </span>
                   </div>
                   <div style={{ marginBottom: 4 }}>
-                    L<sub>ij</sub> = {l_ij.toFixed(1)}, L<sub>ji</sub> = {l_ji.toFixed(1)}
+                    Observed commuters: {l_ij.toFixed(1)} (i→j), {l_ji.toFixed(1)} (j→i)
                     <span style={{ color: "#64748b", marginLeft: 8 }}>
-                      ({isWeighted ? "weighted" : "equal-weight fallback"})
+                      ({isWeighted ? "weighted by commuter volume" : "equal-weight fallback"})
                     </span>
                   </div>
                   <div
@@ -598,19 +836,19 @@ function InspectPanel({ hexId, metadata, snapshot, pairKeys, T, Lij, Lji, centro
                   >
                     {isWeighted ? (
                       <>
-                        P = (L<sub>ij</sub> &middot; &Omega;<sub>ij</sub> + L<sub>ji</sub> &middot; &Omega;<sub>ji</sub>) / (L<sub>ij</sub> + L<sub>ji</sub>)
+                        Combined multiplier = weighted average of both directions
                         <br />
-                        P = ({l_ij.toFixed(1)} &times; {omega_ij.toFixed(4)} + {l_ji.toFixed(1)} &times; {omega_ji.toFixed(4)}) / {Ltotal.toFixed(1)}
+                        = ({l_ij.toFixed(1)} × {omega_ij.toFixed(4)} + {l_ji.toFixed(1)} × {omega_ji.toFixed(4)}) / {Ltotal.toFixed(1)}
                         <br />
-                        <strong style={{ color: "#e2e8f0" }}>P = {P.toFixed(6)}</strong>
+                        <strong style={{ color: "#e2e8f0" }}>Trip multiplier = {P.toFixed(6)}</strong>
                       </>
                     ) : (
                       <>
-                        P = (&Omega;<sub>ij</sub> + &Omega;<sub>ji</sub>) / 2
+                        Combined multiplier = average of both directions
                         <br />
-                        P = ({omega_ij.toFixed(4)} + {omega_ji.toFixed(4)}) / 2
+                        = ({omega_ij.toFixed(4)} + {omega_ji.toFixed(4)}) / 2
                         <br />
-                        <strong style={{ color: "#e2e8f0" }}>P = {P.toFixed(6)}</strong>
+                        <strong style={{ color: "#e2e8f0" }}>Trip multiplier = {P.toFixed(6)}</strong>
                       </>
                     )}
                   </div>
@@ -700,26 +938,45 @@ function ExportButton() {
 
 function App() {
   const { data, loading, error } = usePrecomputedData();
-  const [alpha, setAlpha] = useState(0.25);
+  const [pctChange, setPctChange] = useState(0);
   const [selectedHex, setSelectedHex] = useState(null);
 
-  // Find nearest snapshot
+  // Feasible percent-change range from precomputed snapshots
+  const { pctMin, pctMax } = useMemo(() => {
+    if (!data) return { pctMin: -0.1, pctMax: 0.05 };
+    const pcts = data.snapshots.snapshots.map((s) => s.percent_change);
+    return { pctMin: Math.min(...pcts), pctMax: Math.max(...pcts) };
+  }, [data]);
+
+  // Find nearest snapshot by percent change
   const snapIndex = useMemo(() => {
     if (!data) return 0;
-    return findNearestAlphaIndex(data.snapshots.alpha_values, alpha);
-  }, [data, alpha]);
+    return findNearestPctIndex(data.snapshots.snapshots, pctChange);
+  }, [data, pctChange]);
 
   const snapshot = data ? data.snapshots.snapshots[snapIndex] : null;
 
-  // Alpha max from the data
-  const alphaMax = data
-    ? data.snapshots.alpha_values[data.snapshots.alpha_values.length - 1]
-    : 2.0;
-
-  // Color scale
+  // Color scale: log-compressed diverging blue/white/red for hex choropleth
   const colorFn = useMemo(() => {
-    if (!data) return () => [200, 200, 200];
-    return makeColorScale(data.globalMin, data.globalMax);
+    if (!data) return () => [220, 220, 220];
+    return makeLogDivergingColorScale(data.globalMin, data.globalMax);
+  }, [data]);
+
+  // Separate scale for arcs (P-1 domain, typically -0.5 to +0.5)
+  const arcColorFn = useMemo(() => {
+    if (!data) return () => [220, 220, 220];
+    // P-1 ranges from about -0.5 (fewer trips) to +0.5 (more trips)
+    // Make symmetric
+    let arcMin = 0, arcMax = 0;
+    for (const snap of data.snapshots.snapshots) {
+      for (const p of snap.P) {
+        const v = p - 1;
+        if (v < arcMin) arcMin = v;
+        if (v > arcMax) arcMax = v;
+      }
+    }
+    const arcAbs = Math.max(Math.abs(arcMin), Math.abs(arcMax));
+    return makeDivergingColorScale(-arcAbs, arcAbs);
   }, [data]);
 
   // Top N arcs (most-changed pairs)
@@ -745,7 +1002,7 @@ function App() {
       const [origin, dest] = pairKeys[k];
       const P = snapshot.P[k];
       const change = (P - 1) * T[k];
-      const color = colorFn(P - 1);
+      const color = arcColorFn(P - 1);
 
       return {
         source: centroids[origin] || [0, 0],
@@ -757,11 +1014,14 @@ function App() {
         width: 1 + Math.min(5, (T[k] / Math.max(...T)) * 5),
       };
     });
-  }, [data, snapshot, colorFn]);
+  }, [data, snapshot, arcColorFn]);
 
-  // Hex layer with net change coloring
+  // Hex layer: diverging blue/white/red by absolute trip change
   const hexLayer = useMemo(() => {
     if (!data || !snapshot) return null;
+
+    // Use hex_abs_change if available, fall back to hex_net_change
+    const changeData = snapshot.hex_abs_change || snapshot.hex_net_change;
 
     return new GeoJsonLayer({
       id: "hex-choropleth",
@@ -771,7 +1031,7 @@ function App() {
       pickable: true,
       getFillColor: (f) => {
         const hexId = f.properties.hex_id;
-        const change = snapshot.hex_net_change[hexId] || 0;
+        const change = changeData[hexId] || 0;
         const color = colorFn(change);
         return [...color, 178]; // 0.7 opacity
       },
@@ -893,11 +1153,12 @@ function App() {
         />
       </DeckGL>
 
-      <AlphaSlider
-        alpha={alpha}
-        alphaMax={alphaMax}
-        onChange={setAlpha}
-        percentChange={snapshot ? snapshot.percent_change : 0}
+      <PctChangeSlider
+        pctChange={snapshot ? snapshot.percent_change : pctChange}
+        pctMin={pctMin}
+        pctMax={pctMax}
+        onChange={setPctChange}
+        alpha={snapshot ? snapshot.alpha : 0}
       />
 
       {snapshot && (
@@ -918,6 +1179,14 @@ function App() {
           Lji={data.snapshots.L_ji}
           centroids={data.centroids}
           onClose={() => setSelectedHex(null)}
+        />
+      )}
+
+      {data && (
+        <ColorLegend
+          rawMin={data.globalMin}
+          rawMax={data.globalMax}
+          colorFn={colorFn}
         />
       )}
 

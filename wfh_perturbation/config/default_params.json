@@ -1,0 +1,42 @@
+{
+  "_description": "Default WFH parameter vectors. Education-level rates from CPS Q1 2024; industry-level rates from CPS August 2024. Upper bounds from Dingel-Neiman (2020).",
+  "_vintage": {
+    "education_baseline": "CPS Q1 2024",
+    "education_upper_bound": "Dingel-Neiman 2020",
+    "industry_baseline": "CPS August 2024",
+    "industry_upper_bound": "Dingel-Neiman 2020"
+  },
+  "education_labels": [
+    "Less than HS",
+    "HS Diploma",
+    "Some College/Assoc.",
+    "Bachelor's",
+    "Advanced"
+  ],
+  "w_e": [0.035, 0.085, 0.183, 0.384, 0.436],
+  "u_e": [0.098, 0.183, 0.317, 0.556, 0.674],
+  "industry_labels": [
+    "CNS01: Agriculture, Forestry, Fishing",
+    "CNS02: Mining, Quarrying, Oil/Gas",
+    "CNS03: Utilities",
+    "CNS04: Construction",
+    "CNS05: Manufacturing",
+    "CNS06: Wholesale Trade",
+    "CNS07: Retail Trade",
+    "CNS08: Transportation & Warehousing",
+    "CNS09: Information",
+    "CNS10: Finance & Insurance",
+    "CNS11: Real Estate & Rental/Leasing",
+    "CNS12: Professional, Scientific, Tech",
+    "CNS13: Management of Companies",
+    "CNS14: Admin/Support/Waste Mgmt",
+    "CNS15: Educational Services",
+    "CNS16: Healthcare & Social Assistance",
+    "CNS17: Arts, Entertainment, Recreation",
+    "CNS18: Accommodation & Food Services",
+    "CNS19: Other Services",
+    "CNS20: Public Administration"
+  ],
+  "w_o": [0.123, 0.162, 0.277, 0.089, 0.196, 0.234, 0.110, 0.080, 0.500, 0.595, 0.421, 0.597, 0.199, 0.199, 0.197, 0.181, 0.187, 0.043, 0.177, 0.271],
+  "u_o": [0.20, 0.25, 0.37, 0.19, 0.22, 0.52, 0.14, 0.19, 0.72, 0.76, 0.60, 0.80, 0.79, 0.31, 0.83, 0.25, 0.30, 0.08, 0.31, 0.41]
+}

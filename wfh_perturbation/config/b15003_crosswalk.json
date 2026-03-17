@@ -1,0 +1,47 @@
+{
+  "_description": "Mapping from ACS Table B15003 line items to five education bins. Each key is a B15003 variable suffix (e.g., '002' for B15003_002E). Values are the 1-indexed education bin.",
+  "_bins": {
+    "1": "Less than high school",
+    "2": "High school diploma or equivalent",
+    "3": "Some college or associate's degree",
+    "4": "Bachelor's degree",
+    "5": "Advanced degree (master's, professional, doctorate)"
+  },
+  "_source": "U.S. Census Bureau, ACS 5-Year, Table B15003: Sex by Educational Attainment for the Population 25 Years and Over",
+  "mapping": {
+    "002": 1, "003": 1, "004": 1, "005": 1, "006": 1, "007": 1,
+    "008": 1, "009": 1, "010": 1, "011": 1, "012": 1, "013": 1,
+    "014": 1, "015": 1, "016": 1,
+    "017": 2, "018": 2,
+    "019": 3, "020": 3, "021": 3,
+    "022": 4,
+    "023": 5, "024": 5, "025": 5
+  },
+  "variable_labels": {
+    "001": "Total",
+    "002": "No schooling completed",
+    "003": "Nursery school",
+    "004": "Kindergarten",
+    "005": "1st grade",
+    "006": "2nd grade",
+    "007": "3rd grade",
+    "008": "4th grade",
+    "009": "5th grade",
+    "010": "6th grade",
+    "011": "7th grade",
+    "012": "8th grade",
+    "013": "9th grade",
+    "014": "10th grade",
+    "015": "11th grade",
+    "016": "12th grade, no diploma",
+    "017": "Regular high school diploma",
+    "018": "GED or alternative credential",
+    "019": "Some college, less than 1 year",
+    "020": "Some college, 1 or more years, no degree",
+    "021": "Associate's degree",
+    "022": "Bachelor's degree",
+    "023": "Master's degree",
+    "024": "Professional school degree",
+    "025": "Doctorate degree"
+  }
+}

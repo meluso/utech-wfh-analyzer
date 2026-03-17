@@ -1,0 +1,29 @@
+{
+  "_description": "Mapping from CPS telework industry categories to LODES CNS codes. Documents which CPS reporting group each LODES industry sector maps to.",
+  "_source": "CPS August 2024 supplement, mapped to NAICS-based LODES CNS codes",
+  "_notes": {
+    "CNS13_CNS14": "CPS combines NAICS 55 (Management of Companies) and NAICS 56 (Admin/Support/Waste Mgmt) into a single reporting category. Both CNS13 and CNS14 therefore share the same baseline rate (0.199). See spec KL-2 and OD-1."
+  },
+  "mapping": {
+    "CNS01": {"naics": "11", "cps_category": "Agriculture and related industries", "notes": "Agriculture, Forestry, Fishing and Hunting"},
+    "CNS02": {"naics": "21", "cps_category": "Mining, quarrying, and oil and gas extraction", "notes": ""},
+    "CNS03": {"naics": "22", "cps_category": "Utilities", "notes": ""},
+    "CNS04": {"naics": "23", "cps_category": "Construction", "notes": ""},
+    "CNS05": {"naics": "31-33", "cps_category": "Manufacturing", "notes": ""},
+    "CNS06": {"naics": "42", "cps_category": "Wholesale trade", "notes": ""},
+    "CNS07": {"naics": "44-45", "cps_category": "Retail trade", "notes": ""},
+    "CNS08": {"naics": "48-49", "cps_category": "Transportation and warehousing", "notes": ""},
+    "CNS09": {"naics": "51", "cps_category": "Information", "notes": ""},
+    "CNS10": {"naics": "52", "cps_category": "Finance and insurance", "notes": ""},
+    "CNS11": {"naics": "53", "cps_category": "Real estate and rental and leasing", "notes": ""},
+    "CNS12": {"naics": "54", "cps_category": "Professional and technical services", "notes": ""},
+    "CNS13": {"naics": "55", "cps_category": "Management, administrative, and waste services", "notes": "Shared rate with CNS14; see _notes"},
+    "CNS14": {"naics": "56", "cps_category": "Management, administrative, and waste services", "notes": "Shared rate with CNS13; see _notes"},
+    "CNS15": {"naics": "61", "cps_category": "Educational services", "notes": ""},
+    "CNS16": {"naics": "62", "cps_category": "Health care and social assistance", "notes": ""},
+    "CNS17": {"naics": "71", "cps_category": "Arts, entertainment, and recreation", "notes": ""},
+    "CNS18": {"naics": "72", "cps_category": "Accommodation and food services", "notes": ""},
+    "CNS19": {"naics": "81", "cps_category": "Other services", "notes": ""},
+    "CNS20": {"naics": "92", "cps_category": "Public administration", "notes": ""}
+  }
+}

@@ -9,7 +9,7 @@ perturbation module with the uTECH Deep Gravity pipeline. It:
 4. Shows how to access and interpret the results
 
 Prerequisites:
-    pip install -e ".[hex]"
+    pip install -e .
     export CENSUS_API_KEY=your_key
 
 Usage:

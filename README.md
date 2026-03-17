@@ -6,23 +6,18 @@ The core idea: different education×industry segments have different WFH propens
 
 ## Installation
 
-Clone the repo and install in editable mode:
+Clone the repo and install in editable mode with geo dependencies (required for H3 spatial conversion from Census tracts):
 
 ```bash
 git clone git@github.com:johnameluso/utech-wfh-perturbation.git
 cd utech-wfh-perturbation
-pip install -e .
-```
-
-For the hex-native workflow (H3 spatial conversion from Census tracts), also install the geo dependencies:
-
-```bash
 pip install -e ".[hex]"
 ```
 
-Or with conda:
+If you prefer conda for the geo stack:
 
 ```bash
+pip install -e .
 conda install -c conda-forge geopandas h3
 ```
 
@@ -136,7 +131,7 @@ tests/
 
 ## Key Parameters
 
-**α (alpha):** The WFH intensity scaling factor. At α=0, no perturbation occurs (P=1 everywhere). At α=0.25, each segment's WFH rate increases by 25% of its baseline rate (bounded by the structural ceiling). Negative α decreases WFH rates, which increases commute trips (P > 1).
+**α (alpha):** The WFH intensity scaling factor. At α=0, no perturbation occurs (P=1 everywhere). At α=0.25, each segment's WFH rate increases by 25% of its baseline rate (bounded by the structural ceiling). Negative α decreases WFH rates, which increases commute trips (P > 1). In the visualization tool, the slider operates in percent-change space (the WFH-induced change in aggregate travel demand) rather than α directly; α is solved internally and shown as a secondary readout.
 
 **Education shares (5 bins):** Less than HS, HS Diploma, Some College/Associate's, Bachelor's, Advanced degree. Derived from ACS table B15003 at the residence location.
 

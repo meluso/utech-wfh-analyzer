@@ -3,7 +3,7 @@
  *
  * Interactive map showing how WFH scenarios change commute flows across
  * Queens County, NY. Loads precomputed data (from precompute_viz_data.py)
- * and renders hex choropleth + flow arcs with an alpha slider.
+ * and renders hex choropleth + flow arcs with a travel-demand (X) slider.
  *
  * See docs/visualization_tool_spec.md for full specification.
  */
@@ -871,7 +871,7 @@ function ExportButton() {
 
   const files = [
     { name: "hex_geometries.geojson", label: "Hex Geometries (GeoJSON)" },
-    { name: "pairs_alpha_sweep.csv", label: "Pair-Level Data (CSV)" },
+    { name: "pairs_x_sweep.csv", label: "Pair-Level Data (CSV)" },
     { name: "hex_summary.csv", label: "Hex Summary (CSV)" },
   ];
 

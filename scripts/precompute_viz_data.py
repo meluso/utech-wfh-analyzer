@@ -3,21 +3,27 @@
 
 Fetches Census demographics and LODES commute flows for a study area defined
 by one or more counties (default: Queens 36081 + Manhattan 36061), converts to
-H3 hex level, runs an alpha sweep, and writes the output files needed by the
+H3 hex level, runs an X sweep, and writes the output files needed by the
 React frontend. Only flows between tracts within the specified counties are
 included.
+
+The X sweep steps the aggregate travel-demand change X evenly across its
+feasible range and solves for the scaling intensity alpha at each target via
+the closed form (alpha is a byproduct, not the swept variable). This gives even
+resolution in the quantity of interest rather than in alpha, whose mapping to X
+is nonlinear and saturating.
 
 Output files (in viz_data/):
     hex_geometries.geojson  — H3 hex boundaries for map rendering / QGIS
     hex_metadata.json       — Per-hex demographics (education, industry)
-    snapshots.json          — Alpha sweep results (P, G, Omega per pair per alpha)
-    pairs_alpha_sweep.csv   — Flat CSV export (one row per pair × alpha)
-    hex_summary.csv         — Flat CSV export (one row per hex × alpha)
+    snapshots.json          — X sweep results (P, G, Omega per pair per operating point)
+    pairs_x_sweep.csv       — Flat CSV export (one row per pair × operating point)
+    hex_summary.csv         — Flat CSV export (one row per hex × operating point)
 
 Usage:
     python scripts/precompute_viz_data.py
     python scripts/precompute_viz_data.py --counties 36081 36061
-    python scripts/precompute_viz_data.py --counties 48453 --resolution 7 --alpha-steps 50
+    python scripts/precompute_viz_data.py --counties 48453 --resolution 7 --x-steps 50
 
 Prerequisites:
     pip install -e .
@@ -46,8 +52,11 @@ from wfh_perturbation import (
     perturb_flows,
     prepare_hex_data,
     fetch_od_data,
+    SpatialData,
+    AggregateModel,
+    build_aggregate_model,
+    InfeasibleTargetError,
 )
-from wfh_perturbation.solver import compute_alpha_max
 from wfh_perturbation.config import EDUCATION_LABELS, INDUSTRY_LABELS
 
 logger = logging.getLogger(__name__)
@@ -208,17 +217,25 @@ def build_hex_metadata(
 
 
 # ============================================================
-# Step 4: Alpha sweep
+# Step 4: X sweep
 # ============================================================
 
-def run_alpha_sweep(
-    alpha_values: np.ndarray,
+def run_x_sweep(
+    x_values: np.ndarray,
+    model: AggregateModel,
     baseline_flows: Dict[Tuple[str, str], float],
     hex_edu: Dict[str, np.ndarray],
     hex_ind: Dict[str, np.ndarray],
     hex_commute: Dict[Tuple[str, str], float],
+    tol: float = 1e-6,
 ) -> dict:
-    """Run perturbation at each alpha value and collect results.
+    """Sweep target aggregate changes X, solving for alpha at each (alpha is a byproduct).
+
+    For each target X in x_values we solve alpha = model.solve(X) via the closed
+    form, then run the perturbation once to capture per-pair P, G, and Omega for
+    that operating point. The snapshot schema is identical to the former alpha
+    sweep, so the frontend needs no structural change; the only difference is that
+    the operating points are spaced evenly in X rather than in alpha.
 
     Returns a snapshots dict structured for the frontend JSON file.
     """
@@ -229,19 +246,30 @@ def run_alpha_sweep(
     pair_index = {pair: idx for idx, pair in enumerate(pair_keys)}
     n_pairs = len(pair_keys)
 
-    # Baseline flows and commute weights (constant across alpha)
+    # Baseline flows and commute weights (constant across operating points)
     T_values = [baseline_flows[pair] for pair in pair_keys]
     L_ij_values = [hex_commute.get(pair, 0.0) for pair in pair_keys]
     L_ji_values = [hex_commute.get((pair[1], pair[0]), 0.0) for pair in pair_keys]
 
     snapshots = []
+    solved_alphas = []
     total_T = sum(T_values)
 
-    for idx, alpha in enumerate(alpha_values):
-        alpha_float = float(alpha)
+    for idx, x_target in enumerate(x_values):
+        x_float = float(x_target)
+
+        try:
+            alpha_float = model.solve(x_float, tol=tol)
+        except InfeasibleTargetError:
+            # A target that rounds just past a feasible endpoint clamps to it.
+            alpha_float = -1.0 if x_float > 0 else model.alpha_full_saturation
+        solved_alphas.append(alpha_float)
 
         if idx % 10 == 0:
-            logger.info(f"  Alpha sweep: {idx}/{len(alpha_values)} (alpha={alpha_float:.3f})")
+            logger.info(
+                f"  X sweep: {idx}/{len(x_values)} "
+                f"(X={x_float:.4f} -> alpha={alpha_float:.3f})"
+            )
 
         result = perturb_flows(
             alpha=alpha_float,
@@ -298,6 +326,7 @@ def run_alpha_sweep(
 
         snapshots.append({
             "alpha": round(alpha_float, 6),
+            "target_percent_change": round(x_float, 6),
             "total_T": round(total_T, 1),
             "total_G": round(total_G, 1),
             "percent_change": round(pct_change, 6),
@@ -310,7 +339,9 @@ def run_alpha_sweep(
         })
 
     return {
-        "alpha_values": [round(float(a), 6) for a in alpha_values],
+        # Target X grid that drove the sweep, plus the alpha solved at each point.
+        "x_values": [round(float(x), 6) for x in x_values],
+        "alpha_values": [round(float(a), 6) for a in solved_alphas],
         "pair_keys": [[pair[0], pair[1]] for pair in pair_keys],
         "L_ij": [round(v, 2) for v in L_ij_values],
         "L_ji": [round(v, 2) for v in L_ji_values],
@@ -327,7 +358,11 @@ def write_pairs_csv(
     snapshots_data: dict,
     output_path: Path,
 ) -> None:
-    """Write pairs_alpha_sweep.csv — one row per (pair, alpha)."""
+    """Write pairs_x_sweep.csv — one row per (pair, operating point).
+
+    The operating point is identified by target_pct_change (the swept X target)
+    and alpha (the scaling intensity solved to reach it).
+    """
     pair_keys = snapshots_data["pair_keys"]
     L_ij = snapshots_data["L_ij"]
     L_ji = snapshots_data["L_ji"]
@@ -336,16 +371,17 @@ def write_pairs_csv(
     with open(output_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "origin_hex", "destination_hex", "alpha",
+            "origin_hex", "destination_hex", "target_pct_change", "alpha",
             "T_ij", "P_ij", "G_ij", "Omega_ij", "Omega_ji",
             "L_ij", "L_ji",
         ])
 
         for snap in snapshots_data["snapshots"]:
+            target_x = snap["target_percent_change"]
             alpha = snap["alpha"]
             for k, (origin, dest) in enumerate(pair_keys):
                 writer.writerow([
-                    origin, dest, alpha,
+                    origin, dest, target_x, alpha,
                     T[k], snap["P"][k], snap["G"][k],
                     snap["Omega_ij"][k], snap["Omega_ji"][k],
                     L_ij[k], L_ji[k],
@@ -357,14 +393,18 @@ def write_hex_summary_csv(
     hex_metadata: dict,
     output_path: Path,
 ) -> None:
-    """Write hex_summary.csv — one row per (hex, alpha)."""
+    """Write hex_summary.csv — one row per (hex, operating point).
+
+    The operating point is identified by target_pct_change (the swept X target)
+    and alpha (the scaling intensity solved to reach it).
+    """
     pair_keys = snapshots_data["pair_keys"]
     T = snapshots_data["T"]
 
     with open(output_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "hex_id", "alpha",
+            "hex_id", "target_pct_change", "alpha",
             "total_inbound_T", "total_inbound_G",
             "total_outbound_T", "total_outbound_G",
             "pct_change_inbound", "pct_change_outbound",
@@ -374,6 +414,7 @@ def write_hex_summary_csv(
         edu_labels = ["Less than HS", "HS Diploma", "Some College", "Bachelor's", "Advanced"]
 
         for snap in snapshots_data["snapshots"]:
+            target_x = snap["target_percent_change"]
             alpha = snap["alpha"]
 
             # Accumulate per-hex flows for this snapshot
@@ -409,7 +450,7 @@ def write_hex_summary_csv(
                 top_ind = ind_top4[0]["label"] if ind_top4 else "N/A"
 
                 writer.writerow([
-                    h, alpha,
+                    h, target_x, alpha,
                     round(in_t, 1), round(in_g, 1),
                     round(out_t, 1), round(out_g, 1),
                     round(pct_in, 6), round(pct_out, 6),
@@ -438,8 +479,12 @@ def main():
         help="H3 resolution (default: 7, ~5 km hexes)",
     )
     parser.add_argument(
-        "--alpha-steps", type=int, default=100,
-        help="Number of alpha values in the sweep (default: 100)",
+        "--x-steps", "--alpha-steps", type=int, default=100, dest="x_steps",
+        help=(
+            "Number of operating points in the X sweep, spaced evenly across the "
+            "feasible aggregate-change range (default: 100). --alpha-steps is "
+            "accepted as a backward-compatible alias."
+        ),
     )
     parser.add_argument(
         "--output-dir", default="viz_data",
@@ -570,25 +615,34 @@ def main():
         json.dump(hex_metadata, f)
     logger.info(f"Wrote {metadata_path} ({len(hex_metadata)} hexes, {metadata_path.stat().st_size / 1e6:.1f} MB)")
 
-    # ---- Step 6: Alpha sweep ----
+    # ---- Step 6: X sweep ----
     logger.info("=" * 60)
-    logger.info("Step 6: Running alpha sweep")
+    logger.info("Step 6: Running X sweep")
     logger.info("=" * 60)
 
     params = load_default_params()
-    alpha_max = compute_alpha_max(params)
-    alpha_values = np.linspace(-1.0, alpha_max, args.alpha_steps)
+
+    # Build the closed-form aggregate model once, then derive the feasible X range.
+    spatial_data = SpatialData(
+        edu_shares={k: np.asarray(v, dtype=np.float64) for k, v in hex_edu.items()},
+        ind_shares={k: np.asarray(v, dtype=np.float64) for k, v in hex_ind.items()},
+        commute_weights=dict(hex_commute),
+    )
+    model = build_aggregate_model(params, spatial_data, baseline_flows)
+    X_min, X_max = model.feasible_X_range()
+    x_values = np.linspace(X_min, X_max, args.x_steps)
     logger.info(
-        f"Alpha range: -1.0 to {alpha_max:.4f} "
-        f"({args.alpha_steps} steps, step size = {(alpha_max + 1.0) / args.alpha_steps:.4f})"
+        f"Feasible X range: {X_min:.4f} to {X_max:.4f} "
+        f"({args.x_steps} steps, step size = {(X_max - X_min) / args.x_steps:.4f}); "
+        f"alpha solved per target via closed form"
     )
 
     t_sweep_start = time.time()
-    snapshots_data = run_alpha_sweep(
-        alpha_values, baseline_flows, hex_edu, hex_ind, hex_commute
+    snapshots_data = run_x_sweep(
+        x_values, model, baseline_flows, hex_edu, hex_ind, hex_commute
     )
     t_sweep = time.time() - t_sweep_start
-    logger.info(f"Alpha sweep completed in {t_sweep:.1f}s")
+    logger.info(f"X sweep completed in {t_sweep:.1f}s")
 
     snapshots_path = output_dir / "snapshots.json"
     with open(snapshots_path, "w") as f:
@@ -600,7 +654,7 @@ def main():
     logger.info("Step 7: Writing CSV exports")
     logger.info("=" * 60)
 
-    pairs_csv_path = output_dir / "pairs_alpha_sweep.csv"
+    pairs_csv_path = output_dir / "pairs_x_sweep.csv"
     write_pairs_csv(snapshots_data, pairs_csv_path)
     logger.info(f"Wrote {pairs_csv_path} ({pairs_csv_path.stat().st_size / 1e6:.1f} MB)")
 
@@ -618,8 +672,8 @@ def main():
     logger.info(f"  H3 resolution:  {args.resolution}")
     logger.info(f"  Total hexes:    {len(all_hex_ids)}")
     logger.info(f"  OD pairs:       {len(baseline_flows)}")
-    logger.info(f"  Alpha steps:    {args.alpha_steps}")
-    logger.info(f"  Alpha range:    -1.0 to {alpha_max:.4f}")
+    logger.info(f"  X steps:        {args.x_steps}")
+    logger.info(f"  X range:        {X_min:.4f} to {X_max:.4f}")
     logger.info(f"  Output files:")
     for path in [geojson_path, metadata_path, snapshots_path, pairs_csv_path, hex_csv_path]:
         size_mb = path.stat().st_size / 1e6

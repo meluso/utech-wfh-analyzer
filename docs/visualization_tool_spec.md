@@ -91,7 +91,7 @@ Steps:
 1. Identify all Census tracts in Queens County (FIPS 36081). The Census API can list tracts in a county: `https://api.census.gov/data/2024/acs/acs5?get=NAME&for=tract:*&in=state:36+county:081&key=YOUR_KEY`. Parse the FIPS codes as 11-digit strings (state + county + tract).
 2. Fetch LODES OD data for New York state to identify destination tracts. Filter to pairs where at least one endpoint is a Queens tract. Include the destination tracts (e.g., Manhattan tracts) in the study area so their demographics are fetched too.
 3. Call `prepare_hex_data(all_tracts, resolution=7, ...)` to get hex-level education shares, industry shares, and commute weights.
-4. Use LODES OD counts as proxy baseline flows (T_ij). In production these come from Deep Gravity, but for this demo LODES is the best available public approximation. Scale the LODES counts if desired (they represent a sample, not total commuters), but document the scaling factor.
+4. Use LODES OD counts as proxy baseline flows ($T_{ij}$). In production these come from Deep Gravity, but for this demo LODES is the best available public approximation. Scale the LODES counts if desired (they represent a sample, not total commuters), but document the scaling factor.
 
 ### 4.2 X Sweep
 
@@ -250,7 +250,7 @@ Arc properties:
 
 - **Source/target:** hex centroids from the GeoJSON.
 - **Color:** same diverging scale as the choropleth (blue for reduction, red for increase).
-- **Width:** proportional to baseline flow T_ij, mapped to a 1–6 pixel range.
+- **Width:** proportional to baseline flow $T_{ij}$, mapped to a 1–6 pixel range.
 - **Height:** 0.3 (slight curve for visual separation when arcs overlap).
 - **Opacity:** 0.6.
 
@@ -272,10 +272,10 @@ Moving the slider updates the hex colors, arc colors/widths, and summary stats i
 
 A small panel in the top-right corner showing aggregate numbers for the current operating point:
 
-- **Baseline flow:** sum of T_ij (constant, doesn't change with the scenario).
-- **Perturbed flow:** sum of G_ij at the current scenario.
+- **Baseline flow:** sum of $T_{ij}$ (constant, doesn't change with the scenario).
+- **Perturbed flow:** sum of $G_{ij}$ at the current scenario.
 - **Flow change:** aggregate percent change in total flow, displayed with explicit +/- sign and color-coded (blue for reduction, red for increase).
-- **Trip multiplier distribution:** a small histogram (20 bins from 0.5 to 1.5) showing the spread of P_ij values across all pairs. This communicates that the effect is heterogeneous. At the baseline the histogram is a spike at 1.0; as WFH increases it fans out below 1.0.
+- **Trip multiplier distribution:** a small histogram (20 bins from 0.5 to 1.5) showing the spread of $P_{ij}$ values across all pairs. This communicates that the effect is heterogeneous. At the baseline the histogram is a spike at 1.0; as WFH increases it fans out below 1.0.
 
 ### 5.7 Click-to-Inspect Panel
 
@@ -305,7 +305,7 @@ Two small horizontal bar charts side by side:
 
 A table showing the 5 OD pairs involving this hex with the largest absolute flow change at the current operating point:
 
-| Partner Hex | Direction | T_ij | P_ij | Delta Flow |
+| Partner Hex | Direction | $T_{ij}$ | $P_{ij}$ | Delta Flow |
 |---|---|---|---|---|
 | 872a...3df | Outbound | 2,200 | 0.68 | -704 |
 | 872a...1af | Inbound | 1,800 | 0.71 | -522 |
@@ -317,9 +317,9 @@ A table showing the 5 OD pairs involving this hex with the largest absolute flow
 
 For the top partner (or whichever row the user hovers), show the mechanistic breakdown:
 
-- **Omega_ij** and **Omega_ji** values with labels indicating which direction is which ("residents here -> jobs there" vs "residents there -> jobs here").
-- **L_ij** and **L_ji** commute weights, and whether the weighted or equal-weight fallback was used.
-- **P_ij** = the symmetric combination, shown as a formula with the actual numbers filled in. For weighted: `P = (L_ij * Omega_ij + L_ji * Omega_ji) / (L_ij + L_ji)`. For fallback: `P = (Omega_ij + Omega_ji) / 2`.
+- $\Omega_{ij}$ and $\Omega_{ji}$ values with labels indicating which direction is which ("residents here -> jobs there" vs "residents there -> jobs here").
+- $L_{ij}$ and $L_{ji}$ commute weights, and whether the weighted or equal-weight fallback was used.
+- $P_{ij}$ = the symmetric combination, shown as a formula with the actual numbers filled in. For weighted: `P = (L_ij * Omega_ij + L_ji * Omega_ji) / (L_ij + L_ji)`. For fallback: `P = (Omega_ij + Omega_ji) / 2`.
 
 This replaces the natural-language explanation with a compact numeric breakdown that traces the result back to the inputs.
 
@@ -394,7 +394,7 @@ def hex_to_geojson_feature(hex_id):
 
 ### Baseline Flow Proxy
 
-LODES OD counts are a sample (not total commuters). For the visualization, this is acceptable because P_ij values are independent of flow magnitude. G_ij scales linearly with T_ij, so the relative pattern across corridors is correct even if absolute numbers are approximate. Document this caveat in the UI (a small footnote: "Baseline flows from LODES OD data; absolute magnitudes are approximate").
+LODES OD counts are a sample (not total commuters). For the visualization, this is acceptable because $P_{ij}$ values are independent of flow magnitude. $G_{ij}$ scales linearly with $T_{ij}$, so the relative pattern across corridors is correct even if absolute numbers are approximate. Document this caveat in the UI (a small footnote: "Baseline flows from LODES OD data; absolute magnitudes are approximate").
 
 ### Frontend Data Loading
 

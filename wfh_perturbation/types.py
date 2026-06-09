@@ -67,7 +67,9 @@ class PerturbationResult:
             G_ij = T_ij * P_ij.
         omega: Directional aggregate perturbation factors. Maps (i, j) -> float.
             Omega_ij where i=residence, j=workplace.
-        phi: Industry-weighted perturbation vectors by workplace.
+        theta: Industry-weighted perturbation vectors by workplace.
+            theta_e(s) = sum_o W_eo * O_so. Named theta (not phi) to avoid
+            colliding with the supplement's segment sensitivity phi_eo.
             Maps spatial_unit_id -> np.ndarray(5,).
         alpha: The alpha value used (input or solver-determined).
         W_eo: The 5x20 perturbation weight matrix.
@@ -78,7 +80,7 @@ class PerturbationResult:
     P: Dict[SpatialPair, float]
     G: Dict[SpatialPair, float]
     omega: Dict[SpatialPair, float]
-    phi: Dict[SpatialUnitID, np.ndarray]
+    theta: Dict[SpatialUnitID, np.ndarray]
     alpha: float
     W_eo: np.ndarray  # (5, 20)
     w_eo: np.ndarray  # (5, 20)

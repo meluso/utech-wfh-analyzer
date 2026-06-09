@@ -32,7 +32,7 @@ from .computation import (
     compute_joint_upper_bound,
     compute_bounded_deltas,
     compute_perturbation_weights,
-    compute_phi_vectors,
+    compute_theta_vectors,
     compute_omega,
     compute_symmetric_P,
     run_perturbation,
@@ -112,7 +112,7 @@ def perturb_flows(
         params: WFH parameter vectors. If None, uses built-in defaults (DA-5).
 
     Returns:
-        PerturbationResult with P_ij, G_ij, Omega_ij, phi, metadata.
+        PerturbationResult with P_ij, G_ij, Omega_ij, theta, metadata.
     """
     if params is None:
         params = load_default_params()
@@ -210,7 +210,7 @@ __all__ = [
     "compute_joint_upper_bound",
     "compute_bounded_deltas",
     "compute_perturbation_weights",
-    "compute_phi_vectors",
+    "compute_theta_vectors",
     "compute_omega",
     "compute_symmetric_P",
     "run_perturbation",

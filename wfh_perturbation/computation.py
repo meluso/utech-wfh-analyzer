@@ -78,39 +78,43 @@ def compute_perturbation_weights(
     return W_eo
 
 
-def compute_phi_vectors(
+def compute_theta_vectors(
     W_eo: np.ndarray,
     ind_shares: Dict[SpatialUnitID, np.ndarray],
 ) -> Dict[SpatialUnitID, np.ndarray]:
-    """PC-6: Precompute phi_e(s) for every workplace spatial unit s.
+    """PC-6: Precompute theta_e(s) for every workplace spatial unit s.
 
-    phi_e(s) = sum_o W_eo[e, o] * O_so[o]
+    theta_e(s) = sum_o W_eo[e, o] * O_so[o]
+
+    This is the industry-weighted perturbation vector by workplace. It is
+    named theta (not phi) to avoid colliding with the supplement's segment
+    sensitivity phi_eo = w_eo / (1 - w_eo) introduced in Section 5.
 
     Returns:
-        Dict mapping spatial unit id -> np.ndarray(5,) phi vector.
+        Dict mapping spatial unit id -> np.ndarray(5,) theta vector.
     """
-    phi = {}
+    theta = {}
     for unit_id, O_s in ind_shares.items():
         # W_eo is (5, 20), O_s is (20,) -> result is (5,)
-        phi[unit_id] = W_eo @ O_s
-    return phi
+        theta[unit_id] = W_eo @ O_s
+    return theta
 
 
 def compute_omega(
-    edu_i: np.ndarray, phi_j: np.ndarray
+    edu_i: np.ndarray, theta_j: np.ndarray
 ) -> float:
     """PC-7: Directional aggregate perturbation factor.
 
-    Omega_ij = sum_e E_ie * phi_e(s=j)
+    Omega_ij = sum_e E_ie * theta_e(s=j)
 
     Args:
         edu_i: Education share vector for residence unit i, shape (5,).
-        phi_j: Phi vector for workplace unit j, shape (5,).
+        theta_j: Theta vector for workplace unit j, shape (5,).
 
     Returns:
         Scalar Omega_ij.
     """
-    return float(np.dot(edu_i, phi_j))
+    return float(np.dot(edu_i, theta_j))
 
 
 def compute_symmetric_P(
@@ -175,8 +179,8 @@ def run_perturbation(
     # PC-4: Perturbation weights
     W_eo = compute_perturbation_weights(dw_eo, w_eo)
 
-    # PC-6: Precompute phi vectors for all workplace units (PC-11: done once)
-    phi = compute_phi_vectors(W_eo, spatial_data.ind_shares)
+    # PC-6: Precompute theta vectors for all workplace units (PC-11: done once)
+    theta = compute_theta_vectors(W_eo, spatial_data.ind_shares)
 
     # Collect all spatial units that appear in baseline flows
     all_pairs = set(baseline_flows.keys())
@@ -198,15 +202,15 @@ def run_perturbation(
 
         processed_pairs.add(canonical)
 
-        # Get education shares for residence and industry phi for workplace
+        # Get education shares for residence and industry theta for workplace
         edu_i = spatial_data.edu_shares.get(i, np.zeros(5))
         edu_j = spatial_data.edu_shares.get(j, np.zeros(5))
-        phi_j = phi.get(j, np.zeros(5))
-        phi_i = phi.get(i, np.zeros(5))
+        theta_j = theta.get(j, np.zeros(5))
+        theta_i = theta.get(i, np.zeros(5))
 
         # PC-7: Directional Omega values (PC-5: directionality convention)
-        omega_ij = compute_omega(edu_i, phi_j)  # residence=i, workplace=j
-        omega_ji = compute_omega(edu_j, phi_i)  # residence=j, workplace=i
+        omega_ij = compute_omega(edu_i, theta_j)  # residence=i, workplace=j
+        omega_ji = compute_omega(edu_j, theta_i)  # residence=j, workplace=i
 
         omega_dict[(i, j)] = omega_ij
         omega_dict[(j, i)] = omega_ji
@@ -230,7 +234,7 @@ def run_perturbation(
         P=P_dict,
         G=G_dict,
         omega=omega_dict,
-        phi=phi,
+        theta=theta,
         alpha=alpha,
         W_eo=W_eo,
         w_eo=w_eo,

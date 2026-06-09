@@ -26,7 +26,7 @@ from wfh_perturbation import (
     compute_joint_upper_bound,
     compute_bounded_deltas,
     compute_perturbation_weights,
-    compute_phi_vectors,
+    compute_theta_vectors,
     compute_omega,
     compute_symmetric_P,
     run_perturbation,
@@ -260,7 +260,7 @@ class TestPerturbationWeights:
 
 
 # ============================================================
-# Tests: Directionality (PC-5) and phi/omega (PC-6, PC-7)
+# Tests: Directionality (PC-5) and theta/omega (PC-6, PC-7)
 # ============================================================
 
 class TestDirectionality:
@@ -274,12 +274,12 @@ class TestDirectionality:
 
         ex = EX1
         ind_shares = {ex["fips_A"]: ex["ind_A"], ex["fips_B"]: ex["ind_B"]}
-        phi = compute_phi_vectors(W, ind_shares)
+        theta = compute_theta_vectors(W, ind_shares)
 
-        # Omega_ij: residence=A, workplace=B -> edu_A, phi_B
-        omega_ij = compute_omega(ex["edu_A"], phi[ex["fips_B"]])
-        # Omega_ji: residence=B, workplace=A -> edu_B, phi_A
-        omega_ji = compute_omega(ex["edu_B"], phi[ex["fips_A"]])
+        # Omega_ij: residence=A, workplace=B -> edu_A, theta_B
+        omega_ij = compute_omega(ex["edu_A"], theta[ex["fips_B"]])
+        # Omega_ji: residence=B, workplace=A -> edu_B, theta_A
+        omega_ji = compute_omega(ex["edu_B"], theta[ex["fips_A"]])
 
         assert abs(omega_ij - omega_ji) > 0.001, (
             f"Omega_ij ({omega_ij:.6f}) and Omega_ji ({omega_ji:.6f}) "

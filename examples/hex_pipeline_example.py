@@ -5,9 +5,11 @@ perturbation module with the uTECH Deep Gravity pipeline. It:
 
 1. Converts tract-level Census demographics to H3 hex-level data
 2. Creates synthetic hex-level baseline flows (replace with Deep Gravity output)
-3. Queries the study area's feasible range and sweeps target X values
-   (aggregate percent change in trips) within it — the primary workflow
-4. Runs the perturbation directly at a chosen alpha and inspects results
+3. Sweeps alpha — the uniform-shock pattern for cross-city scenario analysis —
+   using the closed-form model for free aggregate response curves
+4. Solves for a single target X value (aggregate percent change in trips)
+5. Sweeps X for even resolution in outcome space (the visualizer's pattern)
+6. Inspects per-pair results
 
 Prerequisites:
     pip install -e .
@@ -74,22 +76,76 @@ def main():
     total_baseline = sum(baseline_flows.values())
     print(f"  {len(baseline_flows)} hex flow pairs, total = {total_baseline:.0f} trips")
 
-    # --- Step 3: Sweep target X values (primary workflow) ---
-    # Each study area has its own feasible range of aggregate change, fixed
-    # by its labor mix and baseline WFH rates. Query it first so every target
-    # in the sweep is solvable for THIS study area; a target outside the
-    # range would raise InfeasibleTargetError. Building the model is one pass
-    # over the flows, and model.solve() is pure arithmetic afterward, so the
-    # expensive pipeline runs once per target and nothing more.
-    print("\n--- Target-based mode (X sweep) ---")
+    # Build the closed-form aggregate model once for this study area. It's a
+    # single pass over the flows, and every pattern below reuses it.
     sd = SpatialData(
         edu_shares=hex_edu, ind_shares=hex_ind, commute_weights=hex_commute
     )
     model = build_aggregate_model(load_default_params(), sd, baseline_flows)
+
+    # --- Step 3: Alpha sweep (uniform shock; primary cross-city pattern) ---
+    # To model a nationwide exogenous shock or uniform policy, apply the SAME
+    # alpha grid to every city and compare outcomes. X_of_alpha evaluates the
+    # aggregate response without running the per-pair pipeline, so each city's
+    # full response curve is essentially free. Run the expensive pipeline only
+    # at the scenario alpha(s) you want flow maps for.
+    print("\n--- Alpha sweep (uniform shock across cities) ---")
+    alphas = np.linspace(0.0, 1.0, 101)
+    X_curve = [model.X_of_alpha(float(a)) for a in alphas]
+    for i in (0, 25, 50, 100):
+        print(f"  X(alpha={alphas[i]:.2f}) = {X_curve[i]:+.2%}")
+
+    scenario_alpha = 0.25  # e.g., a sustained ~50% fuel-price spike
+    result = perturb_flows(
+        alpha=scenario_alpha,
+        baseline_flows=baseline_flows,
+        edu_shares=hex_edu,
+        ind_shares=hex_ind,
+        commute_weights=hex_commute,
+    )
+    print(f"  Pipeline at alpha={scenario_alpha}: "
+          f"total trips = {result.total_perturbed_flow:.0f}, "
+          f"change = {result.percent_change:+.2%}")
+    scenario_result = result  # kept for Step 6
+
+    # --- Step 4: Solve for a single target X ---
+    # When the outcome is specified for THIS study area ("model a 10%
+    # reduction in trips here"), solve for the alpha that achieves it.
+    # Targets outside the feasible range raise InfeasibleTargetError,
+    # so check the range first.
+    print("\n--- Single X target ---")
     x_min, x_max = model.feasible_X_range()
     print(f"  Feasible aggregate change for this study area: "
           f"{x_min:+.1%} to {x_max:+.1%}")
 
+    alpha = model.solve(-0.10)
+    result = perturb_flows(
+        alpha=alpha,
+        baseline_flows=baseline_flows,
+        edu_shares=hex_edu,
+        ind_shares=hex_ind,
+        commute_weights=hex_commute,
+    )
+    print(f"  target=-10%: solved alpha={alpha:.4f}, "
+          f"achieved={result.percent_change:+.2%}")
+
+    # solve_and_perturb wraps the same solve + pipeline run in one call:
+    result = solve_and_perturb(
+        target_percent_change=-0.10,
+        baseline_flows=baseline_flows,
+        edu_shares=hex_edu,
+        ind_shares=hex_ind,
+        commute_weights=hex_commute,
+    )
+    print(f"  one-call form: solved alpha={result.alpha:.4f}, "
+          f"achieved={result.percent_change:+.2%}")
+
+    # --- Step 5: X sweep (even resolution in outcome space) ---
+    # Sweep X when the outcome axis is what a human will scan — this is the
+    # visualizer's pattern (its slider operates in percent-change space).
+    # Note this holds the outcome, not the behavior, constant across runs:
+    # appropriate within one city, not for cross-city comparisons (Step 3).
+    print("\n--- X sweep (outcome-resolution sampling) ---")
     for target in np.linspace(x_min * 0.95, x_max * 0.95, 5):
         alpha = model.solve(float(target))
         result = perturb_flows(
@@ -102,35 +158,11 @@ def main():
         print(f"  target={target:+.1%}: solved alpha={alpha:.4f}, "
               f"achieved={result.percent_change:+.2%}")
 
-    # For a single one-off target, solve_and_perturb does the same in one call:
-    result = solve_and_perturb(
-        target_percent_change=-0.10,
-        baseline_flows=baseline_flows,
-        edu_shares=hex_edu,
-        ind_shares=hex_ind,
-        commute_weights=hex_commute,
-    )
-    print(f"  one-off target=-10%: solved alpha={result.alpha:.4f}, "
-          f"achieved={result.percent_change:+.2%}")
-
-    # --- Step 4: Perturb directly at a chosen alpha ---
-    # Use this mode when alpha itself is the scenario parameter.
-    print("\n--- Direct alpha mode ---")
-    result = perturb_flows(
-        alpha=0.25,
-        baseline_flows=baseline_flows,
-        edu_shares=hex_edu,
-        ind_shares=hex_ind,
-        commute_weights=hex_commute,
-    )
-    print(f"  alpha=0.25: total trips = {result.total_perturbed_flow:.0f}, "
-          f"change = {result.percent_change:+.2%}")
-
-    # --- Step 5: Inspect individual hex pairs ---
-    print("\n--- Sample hex pair details (alpha=0.25) ---")
-    for pair, P in sorted(result.P.items(), key=lambda x: x[1])[:5]:
+    # --- Step 6: Inspect individual hex pairs ---
+    print(f"\n--- Sample hex pair details (alpha={scenario_alpha}) ---")
+    for pair, P in sorted(scenario_result.P.items(), key=lambda x: x[1])[:5]:
         T = baseline_flows.get(pair, 0)
-        G = result.G.get(pair, 0)
+        G = scenario_result.G.get(pair, 0)
         print(f"  {pair[0][:15]} <-> {pair[1][:15]}: P={P:.4f}, T={T:.0f} -> G={G:.0f}")
 
 

@@ -1,8 +1,8 @@
 # WFH Perturbation Module
 
-Post-generation behavioral perturbation framework for the uTECH-Cities project. This module takes baseline commute flows (from Deep Gravity or similar models) and produces perturbed flows that reflect a Work-From-Home scenario, parameterized by a single scaling factor α.
+Post-generation behavioral perturbation framework for the uTECH-Cities project. This module takes baseline commute flows (from Deep Gravity or similar models) and produces perturbed flows that reflect a Work-From-Home scenario, parameterized by a single scaling factor $\alpha$.
 
-The core idea: different education×industry segments have different WFH propensities. A hex with many college-educated professional-services workers will see a larger reduction in commute trips than a hex dominated by retail and food-service employment. This module computes those segment-specific adjustments and aggregates them into a single symmetric perturbation factor P for each origin-destination pair, such that the perturbed flow G = T × P.
+The core idea: different education-by-industry segments have different WFH propensities. A hex with many college-educated professional-services workers will see a larger reduction in commute trips than a hex dominated by retail and food-service employment. This module computes those segment-specific adjustments and aggregates them into a single symmetric perturbation factor $P$ for each origin-destination pair, such that the perturbed flow $G = T \times P$.
 
 ## Installation
 
@@ -76,7 +76,7 @@ print(f"Aggregate change: {result.percent_change:.2%}")
 
 ### Target-based mode
 
-If you know the desired aggregate percent change in trips (e.g., -15%) but not the α value, the solver will find it:
+If you know the desired aggregate percent change in trips (e.g., -15%) but not the $\alpha$ value, the solver will find it:
 
 ```python
 from wfh_perturbation import solve_and_perturb
@@ -97,17 +97,17 @@ print(f"Achieved change: {result.percent_change:.2%}")
 
 The perturbation proceeds in five stages for each origin-destination pair:
 
-**1. Joint WFH propensity matrix (5×20).** For each education level *e* and industry sector *o*, the joint baseline WFH rate is w\_eo = 1 − (1−w\_e)(1−w\_o), combining education-level and industry-level WFH rates from CPS data.
+**1. Joint WFH propensity matrix ($5 \times 20$).** For each education level *e* and industry sector *o*, the joint baseline WFH rate is $w_{eo} = 1 - (1-w_e)(1-w_o)$, combining education-level and industry-level WFH rates from CPS data.
 
-**2. Bounded perturbation deltas.** The change in WFH rate for each segment is Δw\_eo = max(−w\_eo, min(α·w\_eo, u\_eo − w\_eo)). This ensures WFH rates stay between 0 and the structural upper bound u\_eo (from Dingel-Neiman 2020). Positive α increases WFH (reducing commute trips); negative α decreases WFH (increasing trips).
+**2. Bounded perturbation deltas.** The change in WFH rate for each segment is $\Delta w_{eo} = \max(-w_{eo},\, \min(\alpha\,w_{eo},\, u_{eo} - w_{eo}))$. This ensures WFH rates stay between 0 and the structural upper bound $u_{eo}$ (from Dingel-Neiman 2020). Positive $\alpha$ increases WFH (reducing commute trips); negative $\alpha$ decreases WFH (increasing trips).
 
-**3. Perturbation weights.** The trip-reduction factor for each segment is W\_eo = 1 − Δw\_eo / (1−w\_eo). This is the fraction of non-WFH commuters who remain after the perturbation.
+**3. Perturbation weights.** The trip-reduction factor for each segment is $W_{eo} = 1 - \Delta w_{eo} / (1 - w_{eo})$. This is the fraction of non-WFH commuters who remain after the perturbation.
 
-**4. Directional Omega.** For a given origin *i* and destination *j*, the directional perturbation factor Ω\_ij = Σ\_e E\_ie · θ\_e(j), where E\_ie is the education share at residence *i* and θ\_e(j) = Σ\_o W\_eo · O\_jo is a precomputed vector combining industry shares at workplace *j* with the perturbation weights. (This per-workplace vector is named `theta` in the code and the supplement to avoid colliding with the segment sensitivity φ\_eo.) This precomputation (computing θ once per workplace, then dotting with education shares per pair) reduces the per-pair work from O(100) multiplications to O(5).
+**4. Directional Omega.** For a given origin *i* and destination *j*, the directional perturbation factor $\Omega_{ij} = \sum_e E_{ie} \cdot \theta_e(j)$, where $E_{ie}$ is the education share at residence *i* and $\theta_e(j) = \sum_o W_{eo} \cdot O_{jo}$ is a precomputed vector combining industry shares at workplace *j* with the perturbation weights. (This per-workplace vector is named `theta` in the code and the supplement to avoid colliding with the segment sensitivity $\phi_{eo}$.) This precomputation (computing $\theta$ once per workplace, then dotting with education shares per pair) reduces the per-pair work from O(100) multiplications to O(5).
 
-**5. Symmetric P.** The final perturbation factor is P\_ij = (L\_ij·Ω\_ij + L\_ji·Ω\_ji) / (L\_ij + L\_ji), a commute-weighted average of the two directional factors. This guarantees P\_ij = P\_ji. When no commute data exists for a pair (L\_ij + L\_ji = 0), the fallback is an equal-weight average: P = (Ω\_ij + Ω\_ji) / 2.
+**5. Symmetric P.** The final perturbation factor is $P_{ij} = (L_{ij}\,\Omega_{ij} + L_{ji}\,\Omega_{ji}) / (L_{ij} + L_{ji})$, a commute-weighted average of the two directional factors. This guarantees $P_{ij} = P_{ji}$. When no commute data exists for a pair ($L_{ij} + L_{ji} = 0$), the fallback is an equal-weight average: $P = (\Omega_{ij} + \Omega_{ji}) / 2$.
 
-The perturbed flow is then G\_ij = T\_ij × P\_ij.
+The perturbed flow is then $G_{ij} = T_{ij} \times P_{ij}$.
 
 ## Module Structure
 
@@ -125,13 +125,13 @@ wfh_perturbation/
 └── cache.py             # Plain-function file cache for API responses and downloads
 
 tests/
-├── test_validation.py   # 30 tests validating math against spec (hardcoded data, no API)
+├── test_validation.py   # 36 tests validating math against spec (hardcoded data, no API)
 └── test_integration.py  # Live API tests: education, WAC, OD, end-to-end, H3 hex pipeline
 ```
 
 ## Key Parameters
 
-**α (alpha):** The WFH intensity scaling factor. At α=0, no perturbation occurs (P=1 everywhere). At α=0.25, each segment's WFH rate increases by 25% of its baseline rate (bounded by the structural ceiling). Negative α decreases WFH rates, which increases commute trips (P > 1). In the visualization tool, the slider operates in percent-change space (the WFH-induced change in aggregate travel demand) rather than α directly; α is solved internally and shown as a secondary readout.
+**$\alpha$ (alpha):** The WFH intensity scaling factor. At $\alpha = 0$, no perturbation occurs ($P = 1$ everywhere). At $\alpha = 0.25$, each segment's WFH rate increases by 25% of its baseline rate (bounded by the structural ceiling). Negative $\alpha$ decreases WFH rates, which increases commute trips ($P > 1$). In the visualization tool, the slider operates in percent-change space (the WFH-induced change in aggregate travel demand) rather than $\alpha$ directly; $\alpha$ is solved internally and shown as a secondary readout.
 
 **Education shares (5 bins):** Less than HS, HS Diploma, Some College/Associate's, Bachelor's, Advanced degree. Derived from ACS table B15003 at the residence location.
 
@@ -192,10 +192,10 @@ result = perturb_flows(alpha=0.25, ..., params=custom_params)
 ### Primary Functions
 
 **`perturb_flows(alpha, baseline_flows, edu_shares, ind_shares, commute_weights, ...)`**
-Compute perturbed flows for a given α. Returns a `PerturbationResult` with P, G, omega, theta, and metadata. All inputs must use the same spatial keys (H3 hex IDs).
+Compute perturbed flows for a given $\alpha$. Returns a `PerturbationResult` with P, G, omega, theta, and metadata. All inputs must use the same spatial keys (H3 hex IDs).
 
 **`solve_and_perturb(target_percent_change, baseline_flows, edu_shares, ind_shares, commute_weights, ...)`**
-Find the α that achieves a target aggregate percent change in trips, then compute perturbed flows. Solves α from the closed-form relationship X(α) = −Σ m\_eo·min(α·φ\_eo, c\_eo) by bisection (the full pipeline runs once, after α is found), and raises `InfeasibleTargetError` if the target exceeds the feasible range. An exact breakpoint-walk alternative is available as `solve_for_alpha_exact`.
+Find the $\alpha$ that achieves a target aggregate percent change in trips, then compute perturbed flows. Solves $\alpha$ from the closed-form relationship $X(\alpha) = -\sum m_{eo} \cdot \min(\alpha\,\phi_{eo},\, c_{eo})$ by bisection (the full pipeline runs once, after $\alpha$ is found), and raises `InfeasibleTargetError` if the target exceeds the feasible range. An exact breakpoint-walk alternative is available as `solve_for_alpha_exact`.
 
 ### Data Preparation
 
@@ -212,9 +212,9 @@ Fetch tract-level education, industry, and commute data. Returns `(edu, ind, com
 
 `PerturbationResult` has these attributes:
 - `P`: dict mapping (i, j) -> perturbation factor
-- `G`: dict mapping (i, j) -> perturbed flow (G = T × P)
+- `G`: dict mapping (i, j) -> perturbed flow ($G = T \times P$)
 - `omega`: dict mapping (i, j) -> directional Omega
-- `theta`: dict mapping unit_id -> ndarray(5,) precomputed per-workplace vector θ\_e(s)
-- `alpha`: the α value used
+- `theta`: dict mapping unit_id -> ndarray(5,) precomputed per-workplace vector $\theta_e(s)$
+- `alpha`: the $\alpha$ value used
 - `percent_change`: aggregate percent change in total flow (property)
 - `metadata`: dict with run info, data vintages, etc.

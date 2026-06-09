@@ -84,7 +84,7 @@ from wfh_perturbation import (
 from wfh_perturbation import build_aggregate_model, SpatialData
 ```
 
-Note: `build_aggregate_model` builds the closed-form aggregate model once. Its `feasible_X_range()` gives the X-sweep endpoints `[X_min, X_max]`, and `model.solve(X)` returns the α for a target X.
+Note: `build_aggregate_model` builds the closed-form aggregate model once. Its `feasible_X_range()` gives the X-sweep endpoints `[X_min, X_max]`, and `model.solve(X)` returns the $\alpha$ for a target X.
 
 Steps:
 
@@ -95,7 +95,7 @@ Steps:
 
 ### 4.2 X Sweep
 
-Build the closed-form aggregate model once with `build_aggregate_model`, read the feasible range `[X_min, X_max]` from `feasible_X_range()`, and choose 100 evenly spaced target values of X across that range. For each target X, solve for the scaling intensity with `model.solve(X)` (α is the byproduct, not the swept variable), then call `perturb_flows(α)` and store:
+Build the closed-form aggregate model once with `build_aggregate_model`, read the feasible range `[X_min, X_max]` from `feasible_X_range()`, and choose 100 evenly spaced target values of X across that range. For each target X, solve for the scaling intensity with `model.solve(X)` ($\alpha$ is the byproduct, not the swept variable), then call `perturb_flows(alpha)` and store:
 
 - Per-pair: `P_ij`, `G_ij`, `Omega_ij`, `Omega_ji`
 - Per-hex: total inbound G, total outbound G, net change vs baseline
@@ -188,7 +188,7 @@ origin_hex,destination_hex,target_pct_change,alpha,T_ij,P_ij,G_ij,Omega_ij,Omega
 ...
 ```
 
-This is the "Cafer export." He can filter to a single operating point (a target X or its α), join with his own hex data, or compute custom aggregations.
+This is the "Cafer export." He can filter to a single operating point (a target X or its $\alpha$), join with his own hex data, or compute custom aggregations.
 
 #### `hex_summary.csv` (for Cafer)
 
@@ -263,7 +263,7 @@ A horizontal slider across the top of the viewport. The slider operates in perce
 - Range: the feasible percent-change domain derived from the precomputed snapshots (from maximum WFH on the right to minimum WFH on the left). The display is negated so that positive values correspond to more WFH (dragging right = more WFH = fewer trips).
 - Default position: 0 (no change from baseline).
 - Step size: snaps to the nearest precomputed snapshot by `percent_change`.
-- Label: shows the WFH-induced change in travel demand (e.g., "+8.3% WFH-induced change in travel demand"), α as a secondary readout, and a plain-English scenario description.
+- Label: shows the WFH-induced change in travel demand (e.g., "+8.3% WFH-induced change in travel demand"), $\alpha$ as a secondary readout, and a plain-English scenario description.
 - Endpoint labels: "Less WFH" on the left, "More WFH" on the right.
 
 Moving the slider updates the hex colors, arc colors/widths, and summary stats in real time (just an array swap in the precomputed data, no computation).

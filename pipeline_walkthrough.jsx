@@ -42,7 +42,7 @@ function computeWeights(dw, w_eo) {
     return denom === 0 ? 1 : 1 - dw[i][j] / denom;
   }));
 }
-function computePhi(W_eo, indShares) {
+function computeTheta(W_eo, indShares) {
   return EDU_LABELS.map((_, e) => W_eo[e].reduce((sum, w, o) => sum + w * indShares[o], 0));
 }
 function dot(a, b) { return a.reduce((s, v, i) => s + v * b[i], 0); }
@@ -180,16 +180,16 @@ export default function App() {
     const u_eo = computeJoint(U_E, U_O);
     const dw_eo = computeDeltas(alpha, w_eo, u_eo);
     const W_eo_mat = computeWeights(dw_eo, w_eo);
-    const phi_A = computePhi(W_eo_mat, TRACTS.A.ind);
-    const phi_B = computePhi(W_eo_mat, TRACTS.B.ind);
-    const omega_AB = dot(TRACTS.A.edu, phi_B);
-    const omega_BA = dot(TRACTS.B.edu, phi_A);
+    const theta_A = computeTheta(W_eo_mat, TRACTS.A.ind);
+    const theta_B = computeTheta(W_eo_mat, TRACTS.B.ind);
+    const omega_AB = dot(TRACTS.A.edu, theta_B);
+    const omega_BA = dot(TRACTS.B.edu, theta_A);
     const Ltot = L_AB + L_BA;
     const P_ij = Ltot > 0
       ? (L_AB * omega_AB + L_BA * omega_BA) / Ltot
       : (omega_AB + omega_BA) / 2;
     const G_ij = T_AB * P_ij;
-    return { w_eo, u_eo, dw_eo, W_eo_mat, phi_A, phi_B, omega_AB, omega_BA, P_ij, G_ij };
+    return { w_eo, u_eo, dw_eo, W_eo_mat, theta_A, theta_B, omega_AB, omega_BA, P_ij, G_ij };
   }, [alpha]);
 
   const steps = [

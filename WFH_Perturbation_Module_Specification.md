@@ -7,11 +7,11 @@
 
 ## 1. Purpose
 
-This document specifies the requirements for a software module that implements the Work-From-Home (WFH) post-generation behavioral perturbation framework described in the project methods section. The module shall automate the data acquisition, processing, and computation steps that were manually validated using the companion Excel workbook (`WFH_Perturbation_Framework_Test.xlsx`). Its primary function is to accept Deep Gravity baseline flows (defined over hex cells or another target spatial unit) and produce perturbed flows reflecting a WFH scenario parameterized by a scaling factor α. Because the source demographic data (ACS, LODES) is defined over census tracts while Deep Gravity operates on hex cells, the module must also manage the spatial conversion between these geographies.
+This document specifies the requirements for a software module that implements the Work-From-Home (WFH) post-generation behavioral perturbation framework described in the project methods section. The module shall automate the data acquisition, processing, and computation steps that were manually validated using the companion Excel workbook (`WFH_Perturbation_Framework_Test.xlsx`). Its primary function is to accept Deep Gravity baseline flows (defined over hex cells or another target spatial unit) and produce perturbed flows reflecting a WFH scenario parameterized by a scaling factor $\alpha$. Because the source demographic data (ACS, LODES) is defined over census tracts while Deep Gravity operates on hex cells, the module must also manage the spatial conversion between these geographies.
 
 ## 2. Scope
 
-The module covers five functional areas: (A) acquisition of demographic and commute data from public sources, (B) processing of raw data into tract-level input vectors, (C) spatial conversion of tract-level inputs to the target spatial units used by the flow model (e.g., H3 hex cells), (D) computation of perturbed flows for all spatial-unit pairs, and an optional fifth area (E) that implements the aggregate scenario solver to find α given a target percent change in total flows.
+The module covers five functional areas: (A) acquisition of demographic and commute data from public sources, (B) processing of raw data into tract-level input vectors, (C) spatial conversion of tract-level inputs to the target spatial units used by the flow model (e.g., H3 hex cells), (D) computation of perturbed flows for all spatial-unit pairs, and an optional fifth area (E) that implements the aggregate scenario solver to find $\alpha$ given a target percent change in total flows.
 
 The module does **not** cover the Deep Gravity model itself, the internal logic of the spatial conversion (which is accepted as an external function), or any visualization/reporting of results.
 
@@ -25,18 +25,18 @@ The module does **not** cover the Deep Gravity model itself, the internal logic 
 | Study area | The set of spatial units for which perturbation is computed |
 | e | Education level index (1–5) |
 | o | Industry sector index (1–20, corresponding to LODES CNS01–CNS20) |
-| w_e, u_e | Baseline WFH rate and structural upper bound by education level |
-| w_o, u_o | Baseline WFH rate and structural upper bound by industry sector |
-| w_eo, u_eo | Joint baseline propensity and joint upper bound for segment (e, o) |
-| E_re | Share of residents in spatial unit r with education level e. Derived from ACS tract data via the conversion function |
-| O_so | Share of jobs in spatial unit s in industry sector o. Derived from LODES WAC tract data via the conversion function |
-| L_ij | Commute weight: observed workers residing in spatial unit i, employed in spatial unit j. Derived from LODES OD tract data via the conversion function |
-| T_ij | Deep Gravity baseline flow between spatial units i and j |
-| α | Proportional WFH scaling factor (scenario parameter) |
-| W_eo | Perturbation weight for segment (e, o) given α |
-| Ω_ij | Aggregate perturbation factor for workers residing in i, working in j |
-| P_ij | Symmetric perturbation factor for the spatial-unit pair (i, j) |
-| G_ij | Perturbed flow: G_ij = T_ij × P_ij |
+| $w_e$, $u_e$ | Baseline WFH rate and structural upper bound by education level |
+| $w_o$, $u_o$ | Baseline WFH rate and structural upper bound by industry sector |
+| $w_{eo}$, $u_{eo}$ | Joint baseline propensity and joint upper bound for segment (e, o) |
+| $E_{re}$ | Share of residents in spatial unit r with education level e. Derived from ACS tract data via the conversion function |
+| $O_{so}$ | Share of jobs in spatial unit s in industry sector o. Derived from LODES WAC tract data via the conversion function |
+| $L_{ij}$ | Commute weight: observed workers residing in spatial unit i, employed in spatial unit j. Derived from LODES OD tract data via the conversion function |
+| $T_{ij}$ | Deep Gravity baseline flow between spatial units i and j |
+| $\alpha$ | Proportional WFH scaling factor (scenario parameter) |
+| $W_{eo}$ | Perturbation weight for segment (e, o) given $\alpha$ |
+| $\Omega_{ij}$ | Aggregate perturbation factor for workers residing in i, working in j |
+| $P_{ij}$ | Symmetric perturbation factor for the spatial-unit pair (i, j) |
+| $G_{ij}$ | Perturbed flow: $G_{ij} = T_{ij} \times P_{ij}$ |
 
 ## 4. Requirements
 
@@ -64,9 +64,9 @@ Requirements are organized by functional area. Each requirement uses a unique id
 
 *Verification:* For the Bergen NJ ↔ Midtown Manhattan pair, confirm the module queries both the NJ and NY OD files. Extract the flows and confirm they match the values obtained during chunked extraction (0 in both directions for this specific pair).
 
-**DA-5.** The module shall accept the shared WFH parameter vectors (w_e, u_e, w_o, u_o) as versioned configuration inputs rather than fetching them on every run. The module shall ship with pre-populated default values (see Section 6, "Pre-Populated Defaults") so that users are not required to supply these vectors unless they wish to override them.
+**DA-5.** The module shall accept the shared WFH parameter vectors ($w_e$, $u_e$, $w_o$, $u_o$) as versioned configuration inputs rather than fetching them on every run. The module shall ship with pre-populated default values (see Section 6, "Pre-Populated Defaults") so that users are not required to supply these vectors unless they wish to override them.
 
-*Context:* Education-level telework rates (w_e, u_e) and industry-level telework rates (w_o, u_o) come from CPS and Dingel-Neiman (2020), respectively. These sources are updated infrequently and require manual interpretation (e.g., mapping CPS industry categories to LODES CNS codes). Treating them as configuration rather than live-fetched data avoids fragile scraping and ensures researchers consciously review updates. The pre-populated defaults reduce setup friction while still allowing overrides.
+*Context:* Education-level telework rates ($w_e$, $u_e$) and industry-level telework rates ($w_o$, $u_o$) come from CPS and Dingel-Neiman (2020), respectively. These sources are updated infrequently and require manual interpretation (e.g., mapping CPS industry categories to LODES CNS codes). Treating them as configuration rather than live-fetched data avoids fragile scraping and ensures researchers consciously review updates. The pre-populated defaults reduce setup friction while still allowing overrides.
 
 *Verification:* Confirm the module loads these vectors from a configuration file or explicit function arguments, and that changing the configuration produces different perturbation results. Confirm the module runs successfully with no user-supplied parameter vectors (using built-in defaults).
 
@@ -100,13 +100,13 @@ Requirements are organized by functional area. Each requirement uses a unique id
 
 **DP-4.** The module shall aggregate LODES OD block-level flows to tract-level flows by truncating the 15-digit w_geocode and h_geocode fields to their first 11 digits and summing the S000 column.
 
-*Verification:* For the six directed tract pairs in the validation set, confirm aggregated counts match those obtained via chunked extraction: (36061018400 → 36061000700) = 23, (48453002422 → 48453001101) = 154, and all others = 0.
+*Verification:* For the six directed tract pairs in the validation set, confirm aggregated counts match those obtained via chunked extraction: (36061018400 $\to$ 36061000700) = 23, (48453002422 $\to$ 48453001101) = 154, and all others = 0.
 
 **DP-5.** The module shall process LODES OD files using chunked or streaming I/O, filtering to relevant tracts during read, rather than loading entire state files into memory.
 
 *Context:* State-level OD files can exceed 1 GB uncompressed. A naive full-load approach caused an out-of-memory crash (exit code 137) during manual validation with the NY OD file.
 
-*Verification:* Process the NY OD file on a machine with ≤4 GB available memory and confirm successful completion without OOM.
+*Verification:* Process the NY OD file on a machine with $\le 4$ GB available memory and confirm successful completion without OOM.
 
 **DP-6.** The module shall define the B15003-to-five-bin crosswalk and the CPS-to-LODES industry mapping as a clearly documented configuration artifact (e.g., a YAML, JSON, or CSV file), not as inline code constants.
 
@@ -122,7 +122,7 @@ Requirements are organized by functional area. Each requirement uses a unique id
 
 *Verification:* Confirm the module accepts a conversion function as input and invokes it to transform tract-level vectors before computation. Confirm that substituting a different conversion function (e.g., identity for tract-to-tract validation vs. areal interpolation for tract-to-hex) produces appropriately different results.
 
-**SC-2.** The conversion function shall, at minimum, accept tract-level education share vectors (E_re, 5 values per tract), industry share vectors (O_so, 20 values per tract), and commute weight matrices (L_ij, sparse) and return equivalent vectors and matrices indexed by the target spatial units.
+**SC-2.** The conversion function shall, at minimum, accept tract-level education share vectors ($E_{re}$, 5 values per tract), industry share vectors ($O_{so}$, 20 values per tract), and commute weight matrices ($L_{ij}$, sparse) and return equivalent vectors and matrices indexed by the target spatial units.
 
 *Context:* The conversion must preserve the semantic meaning of each input. Education shares must remain residence-based distributions that sum to 1 for each spatial unit. Industry shares must remain workplace-based distributions that sum to 1. Commute weights must remain non-negative and reflect the directional flow from residence to workplace.
 
@@ -132,7 +132,7 @@ Requirements are organized by functional area. Each requirement uses a unique id
 
 *Context:* The Excel workbook validation operates entirely in tract space. The identity conversion allows the programmatic module to reproduce the workbook results exactly, without requiring a hex conversion implementation.
 
-*Verification:* Using the identity conversion, confirm the module produces P_ij and G_ij values matching the Excel workbook test cases.
+*Verification:* Using the identity conversion, confirm the module produces $P_{ij}$ and $G_{ij}$ values matching the Excel workbook test cases.
 
 **SC-4.** The conversion function shall preserve the residence/workplace directionality of the source data. Education shares describe where people **live**; industry shares describe where people **work**. The conversion must maintain this distinction — a tract's education shares are allocated to spatial units based on residential population overlap, while industry shares are allocated based on workplace/employment overlap.
 
@@ -144,97 +144,97 @@ Requirements are organized by functional area. Each requirement uses a unique id
 
 ### 4.D — Perturbation Computation
 
-*Note:* The requirements in this section are geometry-agnostic — the math is the same whether the spatial units are census tracts, hex cells, or any other geography. The inputs (E_re, O_so, L_ij) arrive from the spatial conversion layer (4.C) already expressed in the target spatial units. During validation against the Excel workbook, the identity conversion (SC-3) is used, so the spatial units are tracts. References to "tracts" in verification steps refer to this validation configuration.
+*Note:* The requirements in this section are geometry-agnostic — the math is the same whether the spatial units are census tracts, hex cells, or any other geography. The inputs ($E_{re}$, $O_{so}$, $L_{ij}$) arrive from the spatial conversion layer (4.C) already expressed in the target spatial units. During validation against the Excel workbook, the identity conversion (SC-3) is used, so the spatial units are tracts. References to "tracts" in verification steps refer to this validation configuration.
 
-**PC-1.** The module shall compute the joint baseline WFH propensity matrix w_eo as: `w_eo = 1 − (1 − w_e)(1 − w_o)` for all 5 × 20 education-industry segments.
+**PC-1.** The module shall compute the joint baseline WFH propensity matrix $w_{eo}$ as: $w_{eo} = 1 - (1 - w_e)(1 - w_o)$ for all $5 \times 20$ education-industry segments.
 
 *Verification:* Compare the 100 computed values against the Parameters sheet of the Excel workbook (Section 3, rows 38–57) to within ±0.0001.
 
-**PC-2.** The module shall compute the joint upper bound matrix u_eo as: `u_eo = 1 − (1 − u_e)(1 − u_o)` for all segments.
+**PC-2.** The module shall compute the joint upper bound matrix $u_{eo}$ as: $u_{eo} = 1 - (1 - u_e)(1 - u_o)$ for all segments.
 
 *Verification:* Compare against the Parameters sheet (Section 4, rows 62–81) to within ±0.0001.
 
-**PC-3.** Given a scalar α, the module shall compute bounded perturbation deltas as: `Δw_eo = max(−w_eo, min(α · w_eo, u_eo − w_eo))` for all segments.
+**PC-3.** Given a scalar $\alpha$, the module shall compute bounded perturbation deltas as: $\Delta w_{eo} = \max(-w_{eo},\, \min(\alpha \cdot w_{eo},\, u_{eo} - w_{eo}))$ for all segments.
 
 *Context:* The three-way max/min enforces that (a) WFH rates cannot go below zero, (b) the change is proportional to the baseline, and (c) WFH rates cannot exceed the structural upper bound.
 
-*Verification:* For α = 0.25, compare the 100 Δw_eo values against the Excel workbook's Step 2 tables to within ±0.0001. Also test with α = −0.5 (reduction scenario) and α = 2.0 (aggressive increase that should hit many upper bounds) and confirm bounds are respected: w_eo + Δw_eo ∈ [0, u_eo] for all segments.
+*Verification:* For $\alpha = 0.25$, compare the 100 $\Delta w_{eo}$ values against the Excel workbook's Step 2 tables to within ±0.0001. Also test with $\alpha = -0.5$ (reduction scenario) and $\alpha = 2.0$ (aggressive increase that should hit many upper bounds) and confirm bounds are respected: $w_{eo} + \Delta w_{eo} \in [0, u_{eo}]$ for all segments.
 
-**PC-4.** The module shall compute perturbation weights as: `W_eo = 1 − Δw_eo / (1 − w_eo)` for all segments where w_eo < 1. If w_eo = 1 for any segment (meaning 100% baseline WFH), the module shall set W_eo = 1 (no perturbation possible, since those workers already don't commute).
+**PC-4.** The module shall compute perturbation weights as: $W_{eo} = 1 - \Delta w_{eo} / (1 - w_{eo})$ for all segments where $w_{eo} < 1$. If $w_{eo} = 1$ for any segment (meaning 100% baseline WFH), the module shall set $W_{eo} = 1$ (no perturbation possible, since those workers already don't commute).
 
-*Context:* The denominator (1 − w_eo) approaches zero as w_eo → 1. In practice, w_eo < 1 for all realistic parameter combinations since both w_e and w_o are strictly less than 1, but the guard is necessary for robustness against unusual configurations.
+*Context:* The denominator $(1 - w_{eo})$ approaches zero as $w_{eo} \to 1$. In practice, $w_{eo} < 1$ for all realistic parameter combinations since both $w_e$ and $w_o$ are strictly less than 1, but the guard is necessary for robustness against unusual configurations.
 
-*Verification:* Compare against Step 3 tables in the Excel workbook to within ±0.0001. Additionally, test with an artificially constructed parameter set where w_e = 0.99 and w_o = 0.99 for one segment and confirm no division-by-zero error.
+*Verification:* Compare against Step 3 tables in the Excel workbook to within ±0.0001. Additionally, test with an artificially constructed parameter set where $w_e = 0.99$ and $w_o = 0.99$ for one segment and confirm no division-by-zero error.
 
-**PC-5.** The module shall enforce the directional convention that education shares (E_re) describe the **residence** tract and industry shares (O_so) describe the **workplace** tract. For a directed flow from residence i to workplace j, Ω_ij uses education shares from tract i and industry shares from tract j. For the reverse direction, Ω_ji uses education shares from tract j and industry shares from tract i.
+**PC-5.** The module shall enforce the directional convention that education shares ($E_{re}$) describe the **residence** tract and industry shares ($O_{so}$) describe the **workplace** tract. For a directed flow from residence i to workplace j, $\Omega_{ij}$ uses education shares from tract i and industry shares from tract j. For the reverse direction, $\Omega_{ji}$ uses education shares from tract j and industry shares from tract i.
 
 *Context:* This directionality is fundamental to the framework and was a major point of clarification during methods development. Education attainment comes from ACS, which reports by place of residence. Industry composition comes from LODES WAC, which reports by place of work. Mixing these up (e.g., using workplace education or residence industry) would produce incorrect perturbation factors.
 
-*Verification:* For Example 1 (Tract 7 ↔ Tract 184), confirm that Ω_ij uses Tract 7's education shares with Tract 184's industry shares, while Ω_ji uses Tract 184's education shares with Tract 7's industry shares. Swapping the assignments should produce detectably different Ω values.
+*Verification:* For Example 1 (Tract 7 ↔ Tract 184), confirm that $\Omega_{ij}$ uses Tract 7's education shares with Tract 184's industry shares, while $\Omega_{ji}$ uses Tract 184's education shares with Tract 7's industry shares. Swapping the assignments should produce detectably different $\Omega$ values.
 
-**PC-6.** The module shall precompute the intermediate vector θ_e(s) for every tract s that appears as a workplace in the study area, defined as: `θ_e(s) = Σ_o W_eo · O_so` — the industry-weighted perturbation at workplace tract s for each education level e. (This vector is named θ, `theta` in code, to avoid colliding with the segment sensitivity φ_eo used in the aggregate solver.)
+**PC-6.** The module shall precompute the intermediate vector $\theta_e(s)$ for every tract s that appears as a workplace in the study area, defined as: $\theta_e(s) = \sum_o W_{eo} \cdot O_{so}$ — the industry-weighted perturbation at workplace tract s for each education level e. (This vector is named $\theta$, `theta` in code, to avoid colliding with the segment sensitivity $\phi_{eo}$ used in the aggregate solver.)
 
-*Context:* This decomposition avoids redundant computation. The W_eo matrix is 5 × 20 and computed once. Each workplace tract s contributes a 5-element θ vector. Ω_ij is then a dot product between the residence education vector and the workplace θ vector, making the per-pair computation O(5) rather than O(100).
+*Context:* This decomposition avoids redundant computation. The $W_{eo}$ matrix is $5 \times 20$ and computed once. Each workplace tract s contributes a 5-element $\theta$ vector. $\Omega_{ij}$ is then a dot product between the residence education vector and the workplace $\theta$ vector, making the per-pair computation O(5) rather than O(100).
 
-*Verification:* For the six tracts in the validation set, compare θ vectors against the Excel workbook's Step 4 θ rows to within ±0.0001.
+*Verification:* For the six tracts in the validation set, compare $\theta$ vectors against the Excel workbook's Step 4 $\theta$ rows to within ±0.0001.
 
-**PC-7.** The module shall compute the directional aggregate perturbation factor as: `Ω_ij = Σ_e E_ie · θ_e(s=j)` for each directed pair where i is the residence tract and j is the workplace tract.
+**PC-7.** The module shall compute the directional aggregate perturbation factor as: $\Omega_{ij} = \sum_e E_{ie} \cdot \theta_e(s=j)$ for each directed pair where i is the residence tract and j is the workplace tract.
 
-*Verification:* Compare Ω_ij and Ω_ji values for the three example pairs against the Excel workbook's Step 4 results to within ±0.0001.
+*Verification:* Compare $\Omega_{ij}$ and $\Omega_{ji}$ values for the three example pairs against the Excel workbook's Step 4 results to within ±0.0001.
 
-**PC-8.** The module shall compute the symmetric perturbation factor as: `P_ij = (L_ij · Ω_ij + L_ji · Ω_ji) / (L_ij + L_ji)` when L_ij + L_ji > 0. The construction shall guarantee P_ij = P_ji (symmetry), meaning the perturbation factor is the same regardless of which direction a trip is labeled.
+**PC-8.** The module shall compute the symmetric perturbation factor as: $P_{ij} = (L_{ij} \cdot \Omega_{ij} + L_{ji} \cdot \Omega_{ji}) / (L_{ij} + L_{ji})$ when $L_{ij} + L_{ji} > 0$. The construction shall guarantee $P_{ij} = P_{ji}$ (symmetry), meaning the perturbation factor is the same regardless of which direction a trip is labeled.
 
-*Verification:* Compare P_ij for Examples 1 and 3 against the Excel workbook to within ±0.0001. Additionally, for each pair, verify P_ij = P_ji by computing both orderings and confirming equality.
+*Verification:* Compare $P_{ij}$ for Examples 1 and 3 against the Excel workbook to within ±0.0001. Additionally, for each pair, verify $P_{ij} = P_{ji}$ by computing both orderings and confirming equality.
 
-**PC-9.** The module shall apply a configurable fallback policy when L_ij + L_ji = 0. The default fallback shall be equal weighting: `P_ij = (Ω_ij + Ω_ji) / 2`.
+**PC-9.** The module shall apply a configurable fallback policy when $L_{ij} + L_{ji} = 0$. The default fallback shall be equal weighting: $P_{ij} = (\Omega_{ij} + \Omega_{ji}) / 2$.
 
-*Context:* LODES tract-to-tract flows are sparse. Many pairs for which Deep Gravity produces nonzero T_ij will have zero observed LODES commuters, especially for pairs with small flows or after LODES noise infusion. The fallback policy should be an explicit, documented design choice.
+*Context:* LODES tract-to-tract flows are sparse. Many pairs for which Deep Gravity produces nonzero $T_{ij}$ will have zero observed LODES commuters, especially for pairs with small flows or after LODES noise infusion. The fallback policy should be an explicit, documented design choice.
 
-*Verification:* For Example 2 (Bergen ↔ Midtown, both L values = 0), confirm the module produces P_ij = (Ω_ij + Ω_ji) / 2 and that this matches the Excel workbook result (0.6598) to within ±0.001. Also confirm the fallback policy is configurable by substituting an alternative (e.g., employment-proportional weighting) and observing a different P_ij.
+*Verification:* For Example 2 (Bergen ↔ Midtown, both L values = 0), confirm the module produces $P_{ij} = (\Omega_{ij} + \Omega_{ji}) / 2$ and that this matches the Excel workbook result (0.6598) to within ±0.001. Also confirm the fallback policy is configurable by substituting an alternative (e.g., employment-proportional weighting) and observing a different $P_{ij}$.
 
-**PC-10.** The module shall compute perturbed flows as: `G_ij = T_ij × P_ij` for every tract pair with a nonzero Deep Gravity baseline flow.
+**PC-10.** The module shall compute perturbed flows as: $G_{ij} = T_{ij} \times P_{ij}$ for every tract pair with a nonzero Deep Gravity baseline flow.
 
 *Verification:* Covered by the end-to-end test cases in Section 5.
 
-**PC-11.** The module shall ensure that the W_eo matrix and θ vectors are computed once per run (not redundantly per tract pair), and that per-pair computation is limited to dot products and the P_ij combination step.
+**PC-11.** The module shall ensure that the $W_{eo}$ matrix and $\theta$ vectors are computed once per run (not redundantly per tract pair), and that per-pair computation is limited to dot products and the $P_{ij}$ combination step.
 
-*Verification:* Profile the module on a study area with N ≥ 1,000 tracts. Confirm that wall-clock time scales approximately with the number of nonzero T_ij pairs, not with N² × 100.
+*Verification:* Profile the module on a study area with $N \ge 1{,}000$ tracts. Confirm that wall-clock time scales approximately with the number of nonzero $T_{ij}$ pairs, not with $N^2 \times 100$.
 
 ---
 
 ### 4.E — Aggregate Scenario Solver (Optional)
 
-**AS-1.** The module shall, given a target percent change X in total flows across the study area, solve for the scalar α that produces that target.
+**AS-1.** The module shall, given a target percent change $X$ in total flows across the study area, solve for the scalar $\alpha$ that produces that target.
 
-*Context:* This corresponds to the aggregate scenario analysis in the WFH scenario supplement. A transportation planner may specify "I want to model a 10% reduction in total commute trips" rather than choosing α directly.
+*Context:* This corresponds to the aggregate scenario analysis in the WFH scenario supplement. A transportation planner may specify "I want to model a 10% reduction in total commute trips" rather than choosing $\alpha$ directly.
 
-**AS-2.** The solver shall find α from the closed-form relationship `X(α) = −Σ_eo m_eo · min(α·φ_eo, c_eo)`, where `φ_eo = w_eo/(1−w_eo)`, `c_eo = (u_eo−w_eo)/(1−w_eo)`, and `m_eo` is the trip-weighted segment share. The segment shares `m_eo` are accumulated in a single pass over the baseline flows; α is then recovered by one-dimensional root-finding (e.g., bisection) on the closed form over `α ∈ [−1, α_max]`, where α_max is the largest breakpoint `(u_eo − w_eo) / w_eo` across all segments. The full perturbation pipeline (Steps PC-1 through PC-10) is run once, after α is found, to produce the perturbed flows.
+**AS-2.** The solver shall find $\alpha$ from the closed-form relationship $X(\alpha) = -\sum_{eo} m_{eo} \cdot \min(\alpha\,\phi_{eo},\, c_{eo})$, where $\phi_{eo} = w_{eo}/(1-w_{eo})$, $c_{eo} = (u_{eo}-w_{eo})/(1-w_{eo})$, and $m_{eo}$ is the trip-weighted segment share. The segment shares $m_{eo}$ are accumulated in a single pass over the baseline flows; $\alpha$ is then recovered by one-dimensional root-finding (e.g., bisection) on the closed form over $\alpha \in [-1, \alpha_{\max}]$, where $\alpha_{\max}$ is the largest breakpoint $(u_{eo} - w_{eo}) / w_{eo}$ across all segments. The full perturbation pipeline (Steps PC-1 through PC-10) is run once, after $\alpha$ is found, to produce the perturbed flows.
 
-*Context:* X(α) is continuous, strictly decreasing (more WFH → fewer trips), and piecewise linear, so bisection on the closed form converges reliably. Evaluating the closed form is O(number of segments) and independent of the number of zone pairs, so the per-iteration cost is negligible and the expensive pipeline runs only once at the end rather than once per iteration. Most scientific computing libraries provide a suitable root-finder (e.g., `scipy.optimize.brentq` in Python).
+*Context:* $X(\alpha)$ is continuous, strictly decreasing (more WFH $\to$ fewer trips), and piecewise linear, so bisection on the closed form converges reliably. Evaluating the closed form is O(number of segments) and independent of the number of zone pairs, so the per-iteration cost is negligible and the expensive pipeline runs only once at the end rather than once per iteration. Most scientific computing libraries provide a suitable root-finder (e.g., `scipy.optimize.brentq` in Python).
 
-*Verification:* For a given study area, compute X(α) at α values of 0.0, 0.1, 0.2, ..., 2.0. Then use the solver to find α for each of those X values and confirm round-trip accuracy to within ±0.001. Separately, confirm the closed-form X(α) matches the full-pipeline percent change to within numerical tolerance.
+*Verification:* For a given study area, compute $X(\alpha)$ at $\alpha$ values of 0.0, 0.1, 0.2, ..., 2.0. Then use the solver to find $\alpha$ for each of those $X$ values and confirm round-trip accuracy to within ±0.001. Separately, confirm the closed-form $X(\alpha)$ matches the full-pipeline percent change to within numerical tolerance.
 
-**AS-3.** The solver shall report infeasibility when the target X exceeds the maximum achievable reduction `X_min = −Σ_eo c_eo·m_eo` (all segments saturated at their upper bounds) or the maximum achievable increase `X_max = Σ_eo φ_eo·m_eo` at α = −1 (all segments at their lower bound of zero WFH).
+**AS-3.** The solver shall report infeasibility when the target $X$ exceeds the maximum achievable reduction $X_{\min} = -\sum_{eo} c_{eo}\,m_{eo}$ (all segments saturated at their upper bounds) or the maximum achievable increase $X_{\max} = \sum_{eo} \phi_{eo}\,m_{eo}$ at $\alpha = -1$ (all segments at their lower bound of zero WFH).
 
-*Verification:* Request a target X that exceeds the feasible range. Confirm the solver returns an informative error rather than a nonsensical α.
+*Verification:* Request a target $X$ that exceeds the feasible range. Confirm the solver returns an informative error rather than a nonsensical $\alpha$.
 
-**AS-4.** The default solver uses the closed form of AS-2 and does not require the analytical slope. An exact breakpoint-walk alternative, which walks the piecewise-linear X(α) between segment breakpoints using the slope dX/dα, is provided as an optional implementation (`solve_for_alpha_exact`) and returns the same α.
+**AS-4.** The default solver uses the closed form of AS-2 and does not require the analytical slope. An exact breakpoint-walk alternative, which walks the piecewise-linear $X(\alpha)$ between segment breakpoints using the slope $dX/d\alpha$, is provided as an optional implementation (`solve_for_alpha_exact`) and returns the same $\alpha$.
 
-*Context:* The closed-form expression and its slope dX/dα are documented in the companion file `Derivation_Aggregate_Solver_Slope.md`. The breakpoint walk is exact (no root-finding tolerance) and serves as an independent cross-check on the default bisection solver, but it is not required — the bisection approach is simpler and uses well-validated library code.
+*Context:* The closed-form expression and its slope $dX/d\alpha$ are documented in the companion file `Derivation_Aggregate_Solver_Slope.md`. The breakpoint walk is exact (no root-finding tolerance) and serves as an independent cross-check on the default bisection solver, but it is not required — the bisection approach is simpler and uses well-validated library code.
 
 ---
 
 ### 4.F — Interface and Integration
 
-**IE-1.** The module's primary interface shall accept: (a) a list of tract FIPS codes defining the study area, (b) a vintage year for LODES and ACS data, (c) the shared parameter vectors w_e, u_e, w_o, u_o, (d) a scalar α or a target X with a flag indicating which mode to use, (e) a set of Deep Gravity baseline flows T_ij (as a sparse structure indexed by spatial-unit pairs), and (f) a spatial conversion function conforming to SC-1/SC-2 (defaulting to the identity conversion of SC-3 if none is provided).
+**IE-1.** The module's primary interface shall accept: (a) a list of tract FIPS codes defining the study area, (b) a vintage year for LODES and ACS data, (c) the shared parameter vectors $w_e$, $u_e$, $w_o$, $u_o$, (d) a scalar $\alpha$ or a target $X$ with a flag indicating which mode to use, (e) a set of Deep Gravity baseline flows $T_{ij}$ (as a sparse structure indexed by spatial-unit pairs), and (f) a spatial conversion function conforming to SC-1/SC-2 (defaulting to the identity conversion of SC-3 if none is provided).
 
 *Verification:* Confirm that omitting the conversion function defaults to identity (tract-to-tract) mode and produces results matching the Excel workbook test cases.
 
-**IE-2.** The module shall return, at minimum: (a) the perturbed flows G_ij for every input pair, (b) the P_ij values for every input pair, and (c) the metadata record described in DA-7.
+**IE-2.** The module shall return, at minimum: (a) the perturbed flows $G_{ij}$ for every input pair, (b) the $P_{ij}$ values for every input pair, and (c) the metadata record described in DA-7.
 
-**IE-3.** The data acquisition layer shall be separable from the computation layer, so that a user can run acquisition once, cache results locally, and iterate on computation parameters (α, fallback policy, etc.) without re-downloading.
+**IE-3.** The data acquisition layer shall be separable from the computation layer, so that a user can run acquisition once, cache results locally, and iterate on computation parameters ($\alpha$, fallback policy, etc.) without re-downloading.
 
-*Verification:* Run acquisition for a study area, then run computation five times with different α values. Confirm no network requests occur during the computation-only runs.
+*Verification:* Run acquisition for a study area, then run computation five times with different $\alpha$ values. Confirm no network requests occur during the computation-only runs.
 
 **IE-4.** The module shall not assume a specific programming language. Requirements are specified in terms of mathematical operations, data formats, and interface contracts, not language-specific constructs.
 
@@ -244,30 +244,30 @@ Requirements are organized by functional area. Each requirement uses a unique id
 
 ## 5. Validation Test Cases
 
-The following test cases, drawn from the companion Excel workbook, shall serve as the primary validation suite. All use α = 0.25 and the shared parameter vectors defined in the workbook's Parameters sheet.
+The following test cases, drawn from the companion Excel workbook, shall serve as the primary validation suite. All use $\alpha = 0.25$ and the shared parameter vectors defined in the workbook's Parameters sheet.
 
-| Test Case | Zone i | Zone j | Expected P_ij | Expected % Change |
+| Test Case | Zone i | Zone j | Expected $P_{ij}$ | Expected % Change |
 |-----------|--------|--------|----------------|-------------------|
-| Ex1: NYC Intra-City | 36061000700 | 36061018400 | 0.6814 | −31.86% |
-| Ex2: NYC Metro | 34003005000 | 36061010000 | 0.6598 | −34.02% |
-| Ex3: Austin TX | 48453001101 | 48453002422 | 0.6933 | −30.67% |
+| Ex1: NYC Intra-City | 36061000700 | 36061018400 | 0.6814 | -31.86% |
+| Ex2: NYC Metro | 34003005000 | 36061010000 | 0.6598 | -34.02% |
+| Ex3: Austin TX | 48453001101 | 48453002422 | 0.6933 | -30.67% |
 
 Additional edge-case tests:
 
 | Condition | Expected Behavior |
 |-----------|-------------------|
-| α = 0 | P_ij = 1.0 for all pairs (no perturbation) |
-| α > 0, all segments saturate | Δw_eo = u_eo − w_eo for all (e, o) |
-| α < 0 | WFH decreases; P_ij > 1.0 (more trips) |
-| L_ij + L_ji = 0 | Fallback policy applies |
-| Tract with zero WAC employment | Industry shares = zero vector; Ω contributions from that workplace are zero |
+| $\alpha = 0$ | $P_{ij} = 1.0$ for all pairs (no perturbation) |
+| $\alpha > 0$, all segments saturate | $\Delta w_{eo} = u_{eo} - w_{eo}$ for all (e, o) |
+| $\alpha < 0$ | WFH decreases; $P_{ij} > 1.0$ (more trips) |
+| $L_{ij} + L_{ji} = 0$ | Fallback policy applies |
+| Tract with zero WAC employment | Industry shares = zero vector; $\Omega$ contributions from that workplace are zero |
 | Single-tract study area (i = j) | Module handles self-loops without error |
 
 ## 6. Data Source Reference
 
 | Dataset | Source | Access Method | Key Fields |
 |---------|--------|---------------|------------|
-| Education by residence | ACS 5-Year, Table B15003 | Census API (`api.census.gov`) | ~25 attainment categories → 5 bins |
+| Education by residence | ACS 5-Year, Table B15003 | Census API (`api.census.gov`) | ~25 attainment categories $\to$ 5 bins |
 | Industry by workplace | LODES WAC (S000, JT00) | LEHD file server (HTTPS) | CNS01–CNS20 job counts |
 | Commute flows | LODES OD Main (S000, JT00) | LEHD file server (HTTPS) | h_geocode, w_geocode, S000 |
 | Telework by education | CPS supplements | Versioned config input | 5 rates + 5 upper bounds |
@@ -286,9 +286,9 @@ The following URLs were used during manual validation to download the data that 
 
 The following values were extracted during manual validation and should ship as built-in defaults in the module's configuration. They may be overridden by the user but do not need to be re-derived on every run.
 
-**Education-level WFH parameters (w_e, u_e):** These 5-element vectors are derived from CPS and Dingel-Neiman (2020). They change only when new CPS supplements are published or the education bin definitions are revised.
+**Education-level WFH parameters ($w_e$, $u_e$):** These 5-element vectors are derived from CPS and Dingel-Neiman (2020). They change only when new CPS supplements are published or the education bin definitions are revised.
 
-| Education Level | Baseline w_e | Upper Bound u_e |
+| Education Level | Baseline $w_e$ | Upper Bound $u_e$ |
 |----------------|-------------|-----------------|
 | Less than HS | 0.035 | 0.098 |
 | HS Diploma | 0.085 | 0.183 |
@@ -296,9 +296,9 @@ The following values were extracted during manual validation and should ship as 
 | Bachelor's | 0.384 | 0.556 |
 | Advanced | 0.436 | 0.674 |
 
-**Industry-level WFH parameters (w_o, u_o):** These 20-element vectors map CPS telework rates (August 2024) and Dingel-Neiman upper bounds to LODES CNS codes. They change only when CPS publishes updated telework supplements.
+**Industry-level WFH parameters ($w_o$, $u_o$):** These 20-element vectors map CPS telework rates (August 2024) and Dingel-Neiman upper bounds to LODES CNS codes. They change only when CPS publishes updated telework supplements.
 
-| LODES Code | Industry | Baseline w_o | Upper Bound u_o |
+| LODES Code | Industry | Baseline $w_o$ | Upper Bound $u_o$ |
 |-----------|----------|-------------|-----------------|
 | CNS01 | Agriculture, Forestry, Fishing | 0.123 | 0.20 |
 | CNS02 | Mining, Quarrying, Oil/Gas | 0.162 | 0.25 |
@@ -329,20 +329,18 @@ The following values were extracted during manual validation and should ship as 
 
 **KL-2. CPS industry grouping is coarser than LODES.** The CPS telework tables combine NAICS 55 (Management of Companies) and NAICS 56 (Administrative/Support/Waste Management) into a single reporting category. As a result, CNS13 and CNS14 currently share the same baseline telework rate (19.9%). These are substantively different industries — Management of Companies (CNS13) likely has higher telework potential than Admin/Waste (CNS14). If a more granular source becomes available, the configuration should be updated.
 
-**KL-3. Upper bounds are approximate.** The structural upper bounds (u_e, u_o) derive from Dingel-Neiman (2020) O*NET task classifications, which estimate whether a job *can* be done from home. These are occupation-level estimates mapped to education and industry categories, introducing aggregation error. The joint upper bound formula u_eo = 1 − (1 − u_e)(1 − u_o) assumes independence between education and industry feasibility, which is an approximation.
+**KL-3. Upper bounds are approximate.** The structural upper bounds ($u_e$, $u_o$) derive from Dingel-Neiman (2020) O*NET task classifications, which estimate whether a job *can* be done from home. These are occupation-level estimates mapped to education and industry categories, introducing aggregation error. The joint upper bound formula $u_{eo} = 1 - (1 - u_e)(1 - u_o)$ assumes independence between education and industry feasibility, which is an approximation.
 
 **KL-4. LODES noise infusion affects small flows.** LODES applies noise infusion for disclosure avoidance. At the tract-to-tract level, this means small true flows (1–5 workers) may be reported as zero. The framework's fallback policy (PC-9) handles the zero case, but slightly distorted nonzero counts are used at face value.
 
 **KL-5. Spatial conversion introduces approximation error.** Translating tract-level demographics to hex-level demographics is inherently approximate because the two geographies do not align. Any allocation method (areal, population-weighted, or otherwise) distributes a tract's aggregate shares across overlapping hexes using assumptions about within-tract homogeneity. In reality, demographics vary within tracts — a tract that is 50% bachelor's-degree holders overall may have one neighborhood at 70% and another at 30%. This within-tract heterogeneity is lost in the conversion. The magnitude of this error depends on the resolution of the hex grid relative to tract size; finer hex grids (higher H3 resolution) reduce the error by averaging over smaller areas.
 
-**KL-6. Deep Gravity flows T_ij are undirected.** The perturbation framework treats T_ij as a symmetric baseline flow (T_ij = T_ji). The directional asymmetry of commuting is captured through the LODES-weighted P_ij computation, not through T_ij itself.
+**KL-6. Deep Gravity flows $T_{ij}$ are undirected.** The perturbation framework treats $T_{ij}$ as a symmetric baseline flow ($T_{ij} = T_{ji}$). The directional asymmetry of commuting is captured through the LODES-weighted $P_{ij}$ computation, not through $T_{ij}$ itself.
 
 ## 8. Open Decisions
 
 The following items require determination by the project team before or during implementation. They are flagged here because the spreadsheet validation did not resolve them.
 
-**OD-1. CPS-to-LODES mapping for CNS13/CNS14.** Accept the shared rate (19.9% for both) or seek an alternative source to distinguish Management of Companies from Admin/Waste? Possibilities include BLS Occupational Employment Statistics or American Time Use Survey microdata, but these would add complexity to the data pipeline. These sectors are small shares of most tracts' employment, so the impact on P_ij is likely modest.
+**OD-1. CPS-to-LODES mapping for CNS13/CNS14.** Accept the shared rate (19.9% for both) or seek an alternative source to distinguish Management of Companies from Admin/Waste? Possibilities include BLS Occupational Employment Statistics or American Time Use Survey microdata, but these would add complexity to the data pipeline. These sectors are small shares of most tracts' employment, so the impact on $P_{ij}$ is likely modest.
 
-**OD-2. Spatial conversion approach.** The module accepts the tract-to-hex conversion as an external function (SC-1), but the design of that function is not yet determined. Key questions include: (a) What allocation method — areal interpolation (simple area-weighted), population-weighted (using a gridded population surface), or employment-weighted (using a separate employment raster)? (b) Should education shares and industry shares use *different* allocation weights (residential population for education, employment density for industry) to preserve the residence/workplace distinction (see SC-4)? (c) How are LODES commute weights (L_ij) allocated — proportionally across all hex pairs that overlap the source tract pair, or concentrated in the hex pair with the most overlap? These decisions affect the accuracy of the perturbation at the hex level and should be made in consultation with whoever is building the Deep Gravity pipeline.
-
-**OD-3. Aggregate solver in hex space.** The root-finding approach (AS-2) evaluates X(α) by running the full pipeline at each candidate α. At hex resolution, each evaluation iterates over all hex pairs, which may be substantially more expensive than at tract resolution. The team should assess whether the solver is needed at full hex resolution or whether a tract-level approximation of α is sufficient (find α using tract-level aggregates, then apply it at hex resolution for the per-pair G_ij computation). Since α is a global scalar, the tract-level approximation may be adequate.
+**OD-2. Spatial conversion approach.** The module accepts the tract-to-hex conversion as an external function (SC-1), but the design of that function is not yet determined. Key questions include: (a) What allocation method — areal interpolation (simple area-weighted), population-weighted (using a gridded population surface), or employment-weighted (using a separate employment raster)? (b) Should education shares and industry shares use *different* allocation weights (residential population for education, employment density for industry) to preserve the residence/workplace distinction (see SC-4)? (c) How are LODES commute weights ($L_{ij}$) allocated — proportionally across all hex pairs that overlap the source tract pair, or concentrated in the hex pair with the most overlap? These decisions affect the accuracy of the perturbation at the hex level and should be made in consultation with whoever is building the Deep Gravity pipeline.

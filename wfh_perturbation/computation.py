@@ -87,8 +87,8 @@ def compute_theta_vectors(
     theta_e(s) = sum_o W_eo[e, o] * O_so[o]
 
     This is the industry-weighted perturbation vector by workplace. It is
-    named theta (not phi) to avoid colliding with the supplement's segment
-    sensitivity phi_eo = w_eo / (1 - w_eo) introduced in Section 5.
+    named theta (not phi) to avoid colliding with the WFH scenario supplement's
+    segment sensitivity phi_eo = w_eo / (1 - w_eo).
 
     Returns:
         Dict mapping spatial unit id -> np.ndarray(5,) theta vector.

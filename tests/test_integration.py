@@ -30,7 +30,7 @@ from wfh_perturbation import (
 CACHE_DIR = os.path.join(tempfile.gettempdir(), "wfh_perturbation_test_cache")
 API_KEY = os.environ.get("CENSUS_API_KEY", "")
 
-# Validation tracts from the spec (Section 5)
+# Validation tracts
 # Example 3 (Austin TX) — smaller LODES files, faster to download
 AUSTIN_TRACTS = ["48453001101", "48453002422"]
 

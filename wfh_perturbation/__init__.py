@@ -41,7 +41,14 @@ from .spatial import (
     convert_tract_data_to_hexes,
     prepare_hex_data,
 )
-from .solver import solve_for_alpha, InfeasibleTargetError
+from .solver import (
+    solve_for_alpha,
+    solve_for_alpha_exact,
+    build_aggregate_model,
+    AggregateModel,
+    compute_alpha_max,
+    InfeasibleTargetError,
+)
 from .data_acquisition import (
     create_metadata_record,
     fetch_education_data,
@@ -219,6 +226,10 @@ __all__ = [
     "prepare_hex_data",
     # Solver
     "solve_for_alpha",
+    "solve_for_alpha_exact",
+    "build_aggregate_model",
+    "AggregateModel",
+    "compute_alpha_max",
     "InfeasibleTargetError",
     # Types
     "WFHParams",

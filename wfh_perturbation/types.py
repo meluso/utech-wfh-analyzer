@@ -69,7 +69,7 @@ class PerturbationResult:
             Omega_ij where i=residence, j=workplace.
         theta: Industry-weighted perturbation vectors by workplace.
             theta_e(s) = sum_o W_eo * O_so. Named theta (not phi) to avoid
-            colliding with the supplement's segment sensitivity phi_eo.
+            colliding with the WFH scenario supplement's segment sensitivity phi_eo.
             Maps spatial_unit_id -> np.ndarray(5,).
         alpha: The alpha value used (input or solver-determined).
         W_eo: The 5x20 perturbation weight matrix.

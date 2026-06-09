@@ -1,6 +1,6 @@
 """Validation tests for the WFH perturbation module.
 
-Tests against the three validation cases from Section 5 of the specification,
+Tests against the three validation cases
 using hardcoded data from build_spreadsheet.py (the reference implementation
 that generated the validation spreadsheet).
 
@@ -305,7 +305,7 @@ class TestSymmetricP:
 
 
 # ============================================================
-# Tests: End-to-end validation (Section 5 test cases)
+# Tests: End-to-end validation (test cases)
 # ============================================================
 
 class TestEndToEnd:
@@ -392,7 +392,7 @@ class TestEndToEnd:
 
 
 # ============================================================
-# Tests: Edge cases (Section 5 additional tests)
+# Tests: Edge cases (additional tests)
 # ============================================================
 
 class TestEdgeCases:

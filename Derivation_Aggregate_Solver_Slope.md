@@ -1,14 +1,22 @@
 # Derivation: Slope of X(α) for the Aggregate Scenario Solver
 
-**Purpose:** Derive the exact slope dX/dα of the total-flow percent change X as a function of the scaling factor α. This slope is needed by the breakpoint-walk algorithm (AS-2 in the module specification) to find the α that achieves a target X.
+**Purpose:** Derive the exact slope dX/dα of the total-flow change X as a function of the scaling factor α. This slope drives the **optional** exact breakpoint-walk solver (`solve_for_alpha_exact`). The default solver, `solve_for_alpha`, instead bisects the closed-form X(α) directly and does not need this slope; both recover the same α. The breakpoint walk is documented here for reference and as an independent cross-check on the closed form.
 
-**Companion documents:** Methods section (Sections 4–5), Module specification (Section 4.D), Excel workbook (Steps 1–5).
+**Notation.** This derivation follows the WFH scenario supplement. Per segment (e, o):
+
+- φ_eo = w_eo / (1 − w_eo) — baseline WFH **sensitivity** (the supplement's φ_eo).
+- c_eo = (u_eo − w_eo) / (1 − w_eo) — **saturated contribution**: the value of 1 − W_eo once the segment reaches its upper bound.
+- α_eo = (u_eo − w_eo) / w_eo = c_eo / φ_eo — the segment's **upper breakpoint**.
+
+The per-workplace intermediate vector below is written θ_e(s) (theta), matching the variable named `theta` in the code. It is *not* the sensitivity φ_eo; the two are distinct quantities that happened to share the letter φ in earlier drafts, which is why the code and this document use θ for the vector and reserve φ for the sensitivity.
+
+**Companion documents:** the WFH scenario supplement and its derivation worksheet; the module specification (Section 4.D); the reference spreadsheet.
 
 ---
 
 ## 1. Setup and Notation
 
-Let S = Σ_ij T_ij denote the total baseline flow across the network (a constant). The percent change in total flow is:
+Let S = Σ_ij T_ij denote the total baseline flow across the network (a constant). The change in total flow is:
 
     X(α) = [ Σ_ij T_ij · P_ij(α) ] / S  −  1
 
@@ -18,7 +26,7 @@ So the slope we need is:
 
 The task is to compute dP_ij/dα by applying the chain rule through the computation pipeline:
 
-    α  →  Δw_eo  →  W_eo  →  φ_e(s)  →  Ω_ij  →  P_ij
+    α  →  Δw_eo  →  W_eo  →  θ_e(s)  →  Ω_ij  →  P_ij
 
 Between consecutive breakpoints, every step in this chain is linear in α, so the chain rule gives a constant slope within each interval.
 
@@ -47,40 +55,40 @@ Let U ⊆ {1,...,5} × {1,...,20} denote the set of **unsaturated** segments at 
 
 For unsaturated segments, Δw_eo = α · w_eo, so:
 
-    W_eo = 1 − α · w_eo / (1 − w_eo) = 1 − α · c_eo
+    W_eo = 1 − α · w_eo / (1 − w_eo) = 1 − α · φ_eo
 
-where we define the shorthand:
+with the sensitivity:
 
-    c_eo = w_eo / (1 − w_eo)
+    φ_eo = w_eo / (1 − w_eo)
 
-For saturated segments, W_eo is constant (either at its upper-bound value or lower-bound value), so dW_eo/dα = 0. Therefore:
+For saturated segments, W_eo is constant, so dW_eo/dα = 0. Once a segment saturates at its upper bound, 1 − W_eo holds at the constant c_eo = (u_eo − w_eo) / (1 − w_eo). Therefore:
 
-    dW_eo/dα  =  −c_eo    if (e, o) ∈ U
+    dW_eo/dα  =  −φ_eo    if (e, o) ∈ U
                    0        if (e, o) ∉ U
 
-### Step 2: W_eo → φ_e(s)
+### Step 2: W_eo → θ_e(s)
 
 For any workplace tract s:
 
-    φ_e(s) = Σ_o  W_eo · O_so
+    θ_e(s) = Σ_o  W_eo · O_so
 
 Differentiating:
 
-    dφ_e(s)/dα  =  Σ_o  (dW_eo/dα) · O_so
-                =  Σ_{o: (e,o) ∈ U}  (−c_eo) · O_so
-                = −Σ_{o: (e,o) ∈ U}  c_eo · O_so
+    dθ_e(s)/dα  =  Σ_o  (dW_eo/dα) · O_so
+                =  Σ_{o: (e,o) ∈ U}  (−φ_eo) · O_so
+                = −Σ_{o: (e,o) ∈ U}  φ_eo · O_so
 
-### Step 3: φ_e(s) → Ω_ij
+### Step 3: θ_e(s) → Ω_ij
 
 For a directed flow from residence tract i to workplace tract j:
 
-    Ω_ij = Σ_e  E_ie · φ_e(s = j)
+    Ω_ij = Σ_e  E_ie · θ_e(s = j)
 
 Differentiating:
 
-    dΩ_ij/dα  =  Σ_e  E_ie · dφ_e(s = j)/dα
-              =  Σ_e  E_ie · [ −Σ_{o: (e,o) ∈ U}  c_eo · O_jo ]
-              = −Σ_{(e,o) ∈ U}  c_eo · E_ie · O_jo
+    dΩ_ij/dα  =  Σ_e  E_ie · dθ_e(s = j)/dα
+              =  Σ_e  E_ie · [ −Σ_{o: (e,o) ∈ U}  φ_eo · O_jo ]
+              = −Σ_{(e,o) ∈ U}  φ_eo · E_ie · O_jo
 
 This is the key intermediate result: the sensitivity of the directional perturbation factor Ω_ij to α is a weighted sum over unsaturated segments, where each segment's contribution depends on the **residence** tract's education share (E_ie) and the **workplace** tract's industry share (O_jo).
 
@@ -94,42 +102,44 @@ Since λ_ij and λ_ji are constants (they depend on LODES counts, not on α):
 
 Substituting from Step 3:
 
-    dP_ij/dα  = −λ_ij · Σ_{(e,o) ∈ U}  c_eo · E_ie · O_jo
-                −λ_ji · Σ_{(e,o) ∈ U}  c_eo · E_je · O_io
+    dP_ij/dα  = −λ_ij · Σ_{(e,o) ∈ U}  φ_eo · E_ie · O_jo
+                −λ_ji · Σ_{(e,o) ∈ U}  φ_eo · E_je · O_io
 
-              = −Σ_{(e,o) ∈ U}  c_eo · [ λ_ij · E_ie · O_jo  +  λ_ji · E_je · O_io ]
+              = −Σ_{(e,o) ∈ U}  φ_eo · [ λ_ij · E_ie · O_jo  +  λ_ji · E_je · O_io ]
 
 ### Step 5: P_ij → X
 
     dX/dα  =  (1/S) · Σ_ij  T_ij · dP_ij/dα
 
-           =  −(1/S) · Σ_ij  T_ij · Σ_{(e,o) ∈ U}  c_eo · [ λ_ij · E_ie · O_jo + λ_ji · E_je · O_io ]
+           =  −(1/S) · Σ_ij  T_ij · Σ_{(e,o) ∈ U}  φ_eo · [ λ_ij · E_ie · O_jo + λ_ji · E_je · O_io ]
 
 Swapping the order of summation (Σ_ij and Σ_{(e,o)}):
 
-    dX/dα  =  −Σ_{(e,o) ∈ U}  c_eo · [ (1/S) · Σ_ij  T_ij · ( λ_ij · E_ie · O_jo + λ_ji · E_je · O_io ) ]
+    dX/dα  =  −Σ_{(e,o) ∈ U}  φ_eo · [ (1/S) · Σ_ij  T_ij · ( λ_ij · E_ie · O_jo + λ_ji · E_je · O_io ) ]
 
 ---
 
-## 4. The Network Weight
+## 4. The Trip-Weighted Share m_eo
 
-Define the **network weight** of segment (e, o):
+Define the **trip-weighted share** of segment (e, o) — the same m_eo as the WFH scenario supplement:
 
-    ω_eo  =  (1/S) · Σ_ij  T_ij · ( λ_ij · E_ie · O_jo  +  λ_ji · E_je · O_io )
+    m_eo  =  (1/S) · Σ_ij  T_ij · ( λ_ij · E_ie · O_jo  +  λ_ji · E_je · O_io )
 
 Then the slope takes a compact form:
 
     ┌─────────────────────────────────────────────────┐
     │                                                 │
-    │   dX/dα  =  − Σ_{(e,o) ∈ U}  c_eo · ω_eo     │
+    │   dX/dα  =  − Σ_{(e,o) ∈ U}  φ_eo · m_eo     │
     │                                                 │
-    │   where  c_eo = w_eo / (1 − w_eo)              │
-    │          ω_eo = network weight (defined above)  │
+    │   where  φ_eo = w_eo / (1 − w_eo)              │
+    │          m_eo = trip-weighted share (above)     │
     │          U = set of unsaturated segments         │
     │                                                 │
     └─────────────────────────────────────────────────┘
 
-**Interpretation:** Each education-industry segment (e, o) contributes to the slope in proportion to two factors: c_eo captures how sensitive the perturbation weight is to changes in α (segments with higher baseline WFH are more responsive), and ω_eo captures how much influence that segment has on total network flow (segments that are demographically prevalent in high-flow corridors matter more).
+This is the derivative of the supplement's closed form X(α) = −Σ_eo m_eo · min(α·φ_eo, c_eo): on any interval the unsaturated segments contribute the linear term −α·φ_eo·m_eo (slope −φ_eo·m_eo each), while saturated segments contribute the constant −c_eo·m_eo (slope 0). The flow-weighted average sensitivity is Φ̄ = Σ_eo φ_eo·m_eo, so the slope at α = 0 is exactly −Φ̄.
+
+**Interpretation:** Each education-industry segment (e, o) contributes to the slope in proportion to two factors: φ_eo captures how sensitive the perturbation weight is to changes in α (segments with higher baseline WFH are more responsive), and m_eo captures how much influence that segment has on total network flow (segments that are demographically prevalent in high-flow corridors matter more).
 
 ---
 
@@ -137,33 +147,33 @@ Then the slope takes a compact form:
 
 ### 5.1. Sign
 
-c_eo > 0 for all segments (since 0 < w_eo < 1), and ω_eo ≥ 0 (since T_ij, E_ie, O_jo, λ_ij are all non-negative). Therefore dX/dα ≤ 0 whenever U is nonempty. This is correct: increasing α (more WFH) reduces total trips.
+φ_eo > 0 for all segments (since 0 < w_eo < 1), and m_eo ≥ 0 (since T_ij, E_ie, O_jo, λ_ij are all non-negative). Therefore dX/dα ≤ 0 whenever U is nonempty. This is correct: increasing α (more WFH) reduces total trips.
 
 ### 5.2. α = 0
 
-At α = 0, no segments are saturated (U = all segments), W_eo = 1 for all, φ_e(s) = Σ_o O_so = 1, Ω_ij = Σ_e E_ie = 1, P_ij = 1, and X = 0. The slope at α = 0 is dX/dα = −Σ_{all (e,o)} c_eo · ω_eo. This is the steepest the slope can be (subsequent saturation can only remove terms from the sum, making the slope less negative).
+At α = 0, no segments are saturated (U = all segments), W_eo = 1 for all, θ_e(s) = Σ_o O_so = 1, Ω_ij = Σ_e E_ie = 1, P_ij = 1, and X = 0. The slope at α = 0 is dX/dα = −Σ_{all (e,o)} φ_eo · m_eo = −Φ̄. This is the steepest the slope can be (subsequent saturation can only remove terms from the sum, making the slope less negative).
 
 ### 5.3. Homogeneous demographics
 
 If all tracts have identical education shares E_e and industry shares O_o, then Ω_ij = Ω_ji for all pairs, P_ij is the same everywhere, and X(α) = P(α) − 1. In this case:
 
-    ω_eo = (1/S) · Σ_ij T_ij · E_e · O_o · (λ_ij + λ_ji)  =  E_e · O_o
+    m_eo = (1/S) · Σ_ij T_ij · E_e · O_o · (λ_ij + λ_ji)  =  E_e · O_o
 
 since λ_ij + λ_ji = 1 and (1/S) · Σ_ij T_ij = 1. So:
 
-    dX/dα = −Σ_{(e,o) ∈ U} c_eo · E_e · O_o
+    dX/dα = −Σ_{(e,o) ∈ U} φ_eo · E_e · O_o
 
 Meanwhile, direct computation gives P = Σ_e E_e · Σ_o W_eo · O_o, and differentiating:
 
-    dP/dα = −Σ_{(e,o) ∈ U} c_eo · E_e · O_o
+    dP/dα = −Σ_{(e,o) ∈ U} φ_eo · E_e · O_o
 
 These match. ✓
 
 ### 5.4. Single pair
 
-If the network has just one pair (i, j) with flow T_ij, then S = T_ij (or 2T_ij if we count both directions — but this cancels in the ratio). The ω_eo formula reduces to:
+If the network has just one pair (i, j) with flow T_ij, then S = T_ij (or 2T_ij if we count both directions — but this cancels in the ratio). The m_eo formula reduces to:
 
-    ω_eo = λ_ij · E_ie · O_jo  +  λ_ji · E_je · O_io
+    m_eo = λ_ij · E_ie · O_jo  +  λ_ji · E_je · O_io
 
 This is exactly the "effective demographic share" of segment (e, o) for this pair, weighted by the directional split. This is consistent with the per-pair computation in the spreadsheet.  ✓
 
@@ -171,52 +181,56 @@ This is exactly the "effective demographic share" of segment (e, o) for this pai
 
 At each breakpoint α* where segment (e*, o*) saturates, the slope changes by:
 
-    Δ(slope) = +c_{e*o*} · ω_{e*o*}
+    Δ(slope) = +φ_{e*o*} · m_{e*o*}
 
-The slope becomes less negative (closer to zero), which is correct: once a segment saturates, further increases in α don't affect that segment's contribution, so the marginal reduction in trips diminishes.
+The slope becomes less negative (closer to zero), which is correct: once a segment saturates, further increases in α don't affect that segment's contribution, so the marginal reduction in trips diminishes. At that breakpoint, that segment's contribution to 1 − W_eo freezes at c_{e*o*} = (u_{e*o*} − w_{e*o*}) / (1 − w_{e*o*}), so its contribution to X holds at the constant −c_{e*o*}·m_{e*o*} thereafter.
 
 ---
 
-## 6. The Complete Algorithm
+## 6. The Complete Algorithm (optional exact solver)
+
+This breakpoint walk is the reference implementation behind `solve_for_alpha_exact`. It is **optional**: the default `solve_for_alpha` bisects the closed form X(α) and returns the same α more simply. The walk is exact (no root-finding tolerance) and is useful as a cross-check.
 
 **Precomputation (once per study area):**
 
-1. Compute c_eo = w_eo / (1 − w_eo) for all 100 segments.
+1. Compute φ_eo = w_eo / (1 − w_eo) for all 100 segments.
 2. Compute λ_ij for all tract pairs (from LODES counts and fallback policy).
-3. Compute ω_eo = (1/S) · Σ_ij T_ij · (λ_ij · E_ie · O_jo + λ_ji · E_je · O_io) for all 100 segments.
-4. Compute the upper breakpoints: α_eo^+ = (u_eo − w_eo) / w_eo for all segments.
+3. Compute m_eo = (1/S) · Σ_ij T_ij · (λ_ij · E_ie · O_jo + λ_ji · E_je · O_io) for all 100 segments.
+4. Compute the upper breakpoints: α_eo = (u_eo − w_eo) / w_eo for all segments, and the saturated contributions c_eo = (u_eo − w_eo) / (1 − w_eo).
 5. Sort the positive breakpoints in ascending order. (There is also a single lower breakpoint at α = −1 where all segments simultaneously hit the zero-WFH floor.)
 
 **Solver (given target X):**
 
 6. Start at α = 0 where X = 0.
-7. Initialize slope = −Σ_{all (e,o)} c_eo · ω_eo.
+7. Initialize slope = −Σ_{all (e,o)} φ_eo · m_eo  (= −Φ̄).
 8. Walk forward (if target X < 0) or backward (if target X > 0) through breakpoints:
     - At each breakpoint α*, compute the X value at that breakpoint using the current slope:
       X(α*) = X(α_prev) + slope · (α* − α_prev)
     - If the target X falls within the current interval [X(α_prev), X(α*)], solve linearly:
       α_target = α_prev + (X_target − X(α_prev)) / slope
     - Otherwise, update the slope by removing the saturated segment:
-      slope ← slope + c_{e*o*} · ω_{e*o*}
+      slope ← slope + φ_{e*o*} · m_{e*o*}
     - Continue to the next breakpoint.
 9. If all breakpoints are exhausted without reaching the target, report infeasibility.
 
-**Complexity:** The precomputation of ω_eo in step 3 is O(100 · |pairs|). The sort in step 5 is O(100 · log 100). The walk in steps 6–9 is O(100). Total: O(|pairs|), dominated by the network weight computation.
+Equivalently, on the interval where the saturated set is S, X(α) = −α·Σ_{(e,o)∉S} φ_eo·m_eo − Σ_{(e,o)∈S} c_eo·m_eo, which is the slope-and-offset form: the first sum is the current slope magnitude, the second is the frozen offset from already-saturated segments.
+
+**Complexity:** The precomputation of m_eo in step 3 is O(100 · |pairs|). The sort in step 5 is O(100 · log 100). The walk in steps 6–9 is O(100). Total: O(|pairs|), dominated by the trip-weighted-share computation.
 
 ---
 
-## 7. Implementation Note on ω_eo
+## 7. Implementation Note on m_eo
 
-The network weight ω_eo = (1/S) · Σ_ij T_ij · (λ_ij · E_ie · O_jo + λ_ji · E_je · O_io) requires iterating over all tract pairs for each of the 100 segments. This can be restructured as a matrix operation:
+The trip-weighted share m_eo = (1/S) · Σ_ij T_ij · (λ_ij · E_ie · O_jo + λ_ji · E_je · O_io) requires iterating over all tract pairs for each of the 100 segments. This can be restructured as a matrix operation:
 
 For each pair (i, j), define the 5 × 20 contribution matrix:
 
     M_ij[e, o] = T_ij · (λ_ij · E_ie · O_jo + λ_ji · E_je · O_io)
 
-Then ω_eo = (1/S) · Σ_ij M_ij[e, o]. In practice, this sum can be accumulated incrementally while iterating over pairs, without storing all M_ij matrices. This makes the computation O(|pairs| × 100) in time and O(100) in space (just the running ω_eo accumulator).
+Then m_eo = (1/S) · Σ_ij M_ij[e, o]. In practice, this sum can be accumulated incrementally while iterating over pairs, without storing all M_ij matrices. This makes the computation O(|pairs| × 100) in time and O(100) in space (just the running m_eo accumulator). This is exactly how `build_aggregate_model` accumulates m_eo.
 
 Alternatively, note that the sum decomposes:
 
-    S · ω_eo = Σ_ij T_ij · λ_ij · E_ie · O_jo  +  Σ_ij T_ij · λ_ji · E_je · O_io
+    S · m_eo = Σ_ij T_ij · λ_ij · E_ie · O_jo  +  Σ_ij T_ij · λ_ji · E_je · O_io
 
 The first term can be written as: Σ_i E_ie · [Σ_j T_ij · λ_ij · O_jo] and the second as: Σ_j E_je · [Σ_i T_ij · λ_ji · O_io]. If the inner sums are precomputed per tract, this further reduces the work — but the details depend on the implementation's data structures.

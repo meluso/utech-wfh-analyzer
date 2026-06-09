@@ -33,8 +33,8 @@ This scope is chosen because it is large enough to show meaningful spatial varia
 │     (Census API + LODES)    │
 │  2. Hex conversion          │
 │     (prepare_hex_data)      │
-│  3. Alpha sweep             │
-│     (perturb_flows × 100)   │
+│  3. X sweep                 │
+│     (solve α per X target)  │
 │  4. Export JSON + CSV        │
 │                             │
 └──────────┬──────────────────┘
@@ -47,7 +47,7 @@ This scope is chosen because it is large enough to show meaningful spatial varia
 │  ├── hex_geometries.geojson │
 │  ├── snapshots.json         │
 │  ├── hex_metadata.json      │
-│  ├── pairs_alpha_sweep.csv  │
+│  ├── pairs_x_sweep.csv      │
 │  └── hex_summary.csv        │
 │                             │
 └──────────┬──────────────────┘
@@ -81,10 +81,10 @@ from wfh_perturbation import (
     perturb_flows,
     load_default_params,
 )
-from wfh_perturbation.solver import compute_alpha_max
+from wfh_perturbation import build_aggregate_model, SpatialData
 ```
 
-Note: `compute_alpha_max` is not in the module's public `__all__`, so import it directly from `solver.py`.
+Note: `build_aggregate_model` builds the closed-form aggregate model once. Its `feasible_X_range()` gives the X-sweep endpoints `[X_min, X_max]`, and `model.solve(X)` returns the α for a target X.
 
 Steps:
 
@@ -93,11 +93,9 @@ Steps:
 3. Call `prepare_hex_data(all_tracts, resolution=7, ...)` to get hex-level education shares, industry shares, and commute weights.
 4. Use LODES OD counts as proxy baseline flows (T_ij). In production these come from Deep Gravity, but for this demo LODES is the best available public approximation. Scale the LODES counts if desired (they represent a sample, not total commuters), but document the scaling factor.
 
-### 4.2 Alpha Sweep
+### 4.2 X Sweep
 
-Precompute perturbation results at 100 evenly spaced alpha values from -1.0 to alpha_max (typically around 1.5–2.0, computed via `compute_alpha_max`).
-
-For each alpha value, call `perturb_flows()` and store:
+Build the closed-form aggregate model once with `build_aggregate_model`, read the feasible range `[X_min, X_max]` from `feasible_X_range()`, and choose 100 evenly spaced target values of X across that range. For each target X, solve for the scaling intensity with `model.solve(X)` (α is the byproduct, not the swept variable), then call `perturb_flows(α)` and store:
 
 - Per-pair: `P_ij`, `G_ij`, `Omega_ij`, `Omega_ji`
 - Per-hex: total inbound G, total outbound G, net change vs baseline
@@ -146,13 +144,15 @@ The main data file for the frontend. Structure:
 
 ```json
 {
-  "alpha_values": [-1.0, -0.97, ..., 1.85],
+  "x_values": [-0.45, -0.42, ..., 0.189],
+  "alpha_values": [2.76, 2.10, ..., -1.0],
   "pair_keys": [["872a1072dffffff", "872a1073dffffff"], ...],
   "L_ij": [23.0, ...],
   "L_ji": [0.0, ...],
   "T": [2200.0, ...],
   "snapshots": [
     {
+      "target_percent_change": 0.189,
       "alpha": -1.0,
       "total_T": 185000.0,
       "total_G": 220000.0,
@@ -171,32 +171,32 @@ The main data file for the frontend. Structure:
 }
 ```
 
-The `P`, `G`, `Omega_ij`, and `Omega_ji` arrays are parallel to `pair_keys`. The top-level `L_ij`, `L_ji`, and `T` arrays are also parallel to `pair_keys` and store the constant (alpha-independent) commute weights and baseline flows. These are needed by the inspect panel's "Why This P Value" section. This structure avoids repeating hex ID strings 100 times and keeps the file compact.
+The `P`, `G`, `Omega_ij`, and `Omega_ji` arrays are parallel to `pair_keys`. The top-level `L_ij`, `L_ji`, and `T` arrays are also parallel to `pair_keys` and store the constant (operating-point-independent) commute weights and baseline flows. These are needed by the inspect panel's "Why This P Value" section. This structure avoids repeating hex ID strings 100 times and keeps the file compact.
 
-`hex_net_change` maps each hex to its percent change in total flow (inbound + outbound) at that alpha, used for the choropleth.
+`hex_net_change` maps each hex to its percent change in total flow (inbound + outbound) at that operating point, used for the choropleth.
 
 Target file size: 10–30 MB for a borough-scale study area. This loads comfortably in browser memory.
 
-#### `pairs_alpha_sweep.csv` (for Cafer)
+#### `pairs_x_sweep.csv` (for Cafer)
 
-Flat CSV with one row per (pair, alpha) combination:
+Flat CSV with one row per (pair, operating point) combination. Each operating point is identified by `target_pct_change` (the swept X target) and `alpha` (the intensity solved to reach it):
 
 ```
-origin_hex,destination_hex,alpha,T_ij,P_ij,G_ij,Omega_ij,Omega_ji,L_ij,L_ji
-872a1072dffffff,872a1073dffffff,-1.0,2200.0,1.12,2464.0,1.10,1.14,23.0,0.0
-872a1072dffffff,872a1073dffffff,-0.97,2200.0,1.11,2442.0,1.09,1.13,23.0,0.0
+origin_hex,destination_hex,target_pct_change,alpha,T_ij,P_ij,G_ij,Omega_ij,Omega_ji,L_ij,L_ji
+872a1072dffffff,872a1073dffffff,0.189,-1.0,2200.0,1.12,2464.0,1.10,1.14,23.0,0.0
+872a1072dffffff,872a1073dffffff,0.170,-0.93,2200.0,1.11,2442.0,1.09,1.13,23.0,0.0
 ...
 ```
 
-This is the "Cafer export." He can filter to a single alpha, join with his own hex data, or compute custom aggregations.
+This is the "Cafer export." He can filter to a single operating point (a target X or its α), join with his own hex data, or compute custom aggregations.
 
 #### `hex_summary.csv` (for Cafer)
 
-Flat CSV with one row per (hex, alpha) combination:
+Flat CSV with one row per (hex, operating point) combination:
 
 ```
-hex_id,alpha,total_inbound_T,total_inbound_G,total_outbound_T,total_outbound_G,pct_change_inbound,pct_change_outbound,edu_top_bin,ind_top_sector
-872a1072dffffff,-1.0,4200.0,4704.0,3800.0,4256.0,0.12,0.12,Bachelor's,Finance & Insurance
+hex_id,target_pct_change,alpha,total_inbound_T,total_inbound_G,total_outbound_T,total_outbound_G,pct_change_inbound,pct_change_outbound,edu_top_bin,ind_top_sector
+872a1072dffffff,0.189,-1.0,4200.0,4704.0,3800.0,4256.0,0.12,0.12,Bachelor's,Finance & Insurance
 ...
 ```
 
@@ -226,7 +226,7 @@ pitch: 30 (slight tilt for arc visibility)
 
 ### 5.3 Hex Choropleth Layer
 
-Each hex is filled based on its `hex_net_change` value at the current alpha.
+Each hex is filled based on its `hex_net_change` value at the current operating point.
 
 Color scale: diverging blue-white-red.
 
@@ -234,7 +234,7 @@ Color scale: diverging blue-white-red.
 - White/light gray (near zero): minimal change.
 - Red (positive change): corridors where reduced WFH increases traffic (negative alpha scenarios).
 
-Use a symmetric color scale anchored at 0. The domain should be fixed across all alpha values (use the global min/max across the full sweep) so that colors are comparable as the slider moves.
+Use a symmetric color scale anchored at 0. The domain should be fixed across all operating points (use the global min/max across the full sweep) so that colors are comparable as the slider moves.
 
 Hex opacity: 0.7 (so the basemap is faintly visible beneath).
 
@@ -242,7 +242,7 @@ Hex border: thin white line (0.5px) for hex edge visibility.
 
 ### 5.4 Flow Arc Layer
 
-Show the top N most-changed OD pairs at the current alpha. N = 75 is a reasonable starting point (enough to see the pattern, not so many that it becomes visual noise).
+Show the top N most-changed OD pairs at the current operating point. N = 75 is a reasonable starting point (enough to see the pattern, not so many that it becomes visual noise).
 
 "Most changed" = largest absolute value of `(P_ij - 1) * T_ij`, i.e., the largest absolute change in flow volume. This emphasizes corridors that matter in aggregate, not just corridors with extreme P values on tiny flows.
 
@@ -270,7 +270,7 @@ Moving the slider updates the hex colors, arc colors/widths, and summary stats i
 
 ### 5.6 Summary Stats Panel
 
-A small panel in the top-right corner showing aggregate numbers for the current alpha:
+A small panel in the top-right corner showing aggregate numbers for the current operating point:
 
 - **Baseline flow:** sum of T_ij (constant, doesn't change with the scenario).
 - **Perturbed flow:** sum of G_ij at the current scenario.
@@ -303,7 +303,7 @@ Two small horizontal bar charts side by side:
 
 #### Section 2: Top Commute Partners
 
-A table showing the 5 OD pairs involving this hex with the largest absolute flow change at the current alpha:
+A table showing the 5 OD pairs involving this hex with the largest absolute flow change at the current operating point:
 
 | Partner Hex | Direction | T_ij | P_ij | Delta Flow |
 |---|---|---|---|---|
@@ -333,7 +333,7 @@ An X in the top-right corner of the panel, or clicking elsewhere on the map, clo
 A small "Export" button in the bottom-right corner. Clicking it opens a dropdown with links to download:
 
 - `hex_geometries.geojson`
-- `pairs_alpha_sweep.csv`
+- `pairs_x_sweep.csv`
 - `hex_summary.csv`
 
 These are the same files produced by the precomputation pipeline. Since the app is static, these are just direct file links. This gives Cafer one-click access to the data during the demo without needing to find the files on disk.
@@ -343,9 +343,9 @@ These are the same files produced by the precomputation pipeline. Since the app 
 
 The precomputation should be a single Python script, e.g., `scripts/precompute_viz_data.py`, that:
 
-1. Accepts command-line arguments for: study area FIPS codes (default: Queens 36081), H3 resolution (default: 7), number of alpha steps (default: 100), output directory (default: `viz_data/`).
+1. Accepts command-line arguments for: study area FIPS codes (default: Queens 36081), H3 resolution (default: 7), number of X steps (default: 100), output directory (default: `viz_data/`).
 2. Runs the full data acquisition and hex conversion pipeline.
-3. Performs the alpha sweep.
+3. Performs the X sweep.
 4. Writes all output files.
 5. Prints a summary: number of hexes, number of pairs, file sizes, total runtime.
 
@@ -358,7 +358,7 @@ On a MacBook M3 Pro (36 GB unified memory):
 - Data acquisition (first run): 3–5 minutes (dominated by LODES file download).
 - Data acquisition (cached): < 30 seconds.
 - Hex conversion: 1–2 minutes (TIGER shapefile processing).
-- Alpha sweep (100 values, ~2000 pairs): < 60 seconds total.
+- X sweep (100 operating points, ~2000 pairs): < 60 seconds total.
 - File writing: < 5 seconds.
 
 Peak memory usage: 2–4 GB during shapefile processing. Well within 36 GB.
@@ -398,11 +398,11 @@ LODES OD counts are a sample (not total commuters). For the visualization, this 
 
 ### Frontend Data Loading
 
-Load JSON files with `fetch()` on app mount. The snapshots file is the largest (~10–30 MB). On a local filesystem this loads in under a second. If serving over a network, consider splitting snapshots into per-alpha files, but for a Zoom demo from a local machine this is unnecessary.
+Load JSON files with `fetch()` on app mount. The snapshots file is the largest (~10–30 MB). On a local filesystem this loads in under a second. If serving over a network, consider splitting snapshots into per-operating-point files, but for a Zoom demo from a local machine this is unnecessary.
 
 ### Color Scale
 
-Use d3-scale's `scaleSequential` with the `interpolateRdBu` (reversed, so blue = negative) or a custom diverging scale. Anchor at 0. Fix the domain to the global min/max across all alpha snapshots so that color meaning is stable as the slider moves.
+Use d3-scale's `scaleSequential` with the `interpolateRdBu` (reversed, so blue = negative) or a custom diverging scale. Anchor at 0. Fix the domain to the global min/max across all snapshots so that color meaning is stable as the slider moves.
 
 ### Mapbox Token
 
@@ -425,7 +425,7 @@ utech-wfh-analyzer/
 │   ├── hex_geometries.geojson
 │   ├── snapshots.json
 │   ├── hex_metadata.json
-│   ├── pairs_alpha_sweep.csv
+│   ├── pairs_x_sweep.csv
 │   └── hex_summary.csv
 └── docs/
     └── visualization_tool_spec.md   # this file

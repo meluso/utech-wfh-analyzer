@@ -172,13 +172,13 @@ Requirements are organized by functional area. Each requirement uses a unique id
 
 *Verification:* For Example 1 (Tract 7 ↔ Tract 184), confirm that Ω_ij uses Tract 7's education shares with Tract 184's industry shares, while Ω_ji uses Tract 184's education shares with Tract 7's industry shares. Swapping the assignments should produce detectably different Ω values.
 
-**PC-6.** The module shall precompute the intermediate vector φ_e(s) for every tract s that appears as a workplace in the study area, defined as: `φ_e(s) = Σ_o W_eo · O_so` — the industry-weighted perturbation at workplace tract s for each education level e.
+**PC-6.** The module shall precompute the intermediate vector θ_e(s) for every tract s that appears as a workplace in the study area, defined as: `θ_e(s) = Σ_o W_eo · O_so` — the industry-weighted perturbation at workplace tract s for each education level e. (This vector is named θ, `theta` in code, to avoid colliding with the segment sensitivity φ_eo used in the aggregate solver.)
 
-*Context:* This decomposition avoids redundant computation. The W_eo matrix is 5 × 20 and computed once. Each workplace tract s contributes a 5-element φ vector. Ω_ij is then a dot product between the residence education vector and the workplace φ vector, making the per-pair computation O(5) rather than O(100).
+*Context:* This decomposition avoids redundant computation. The W_eo matrix is 5 × 20 and computed once. Each workplace tract s contributes a 5-element θ vector. Ω_ij is then a dot product between the residence education vector and the workplace θ vector, making the per-pair computation O(5) rather than O(100).
 
-*Verification:* For the six tracts in the validation set, compare φ vectors against the Excel workbook's Step 4 φ rows to within ±0.0001.
+*Verification:* For the six tracts in the validation set, compare θ vectors against the Excel workbook's Step 4 θ rows to within ±0.0001.
 
-**PC-7.** The module shall compute the directional aggregate perturbation factor as: `Ω_ij = Σ_e E_ie · φ_e(s=j)` for each directed pair where i is the residence tract and j is the workplace tract.
+**PC-7.** The module shall compute the directional aggregate perturbation factor as: `Ω_ij = Σ_e E_ie · θ_e(s=j)` for each directed pair where i is the residence tract and j is the workplace tract.
 
 *Verification:* Compare Ω_ij and Ω_ji values for the three example pairs against the Excel workbook's Step 4 results to within ±0.0001.
 
@@ -196,7 +196,7 @@ Requirements are organized by functional area. Each requirement uses a unique id
 
 *Verification:* Covered by the end-to-end test cases in Section 5.
 
-**PC-11.** The module shall ensure that the W_eo matrix and φ vectors are computed once per run (not redundantly per tract pair), and that per-pair computation is limited to dot products and the P_ij combination step.
+**PC-11.** The module shall ensure that the W_eo matrix and θ vectors are computed once per run (not redundantly per tract pair), and that per-pair computation is limited to dot products and the P_ij combination step.
 
 *Verification:* Profile the module on a study area with N ≥ 1,000 tracts. Confirm that wall-clock time scales approximately with the number of nonzero T_ij pairs, not with N² × 100.
 
@@ -206,21 +206,21 @@ Requirements are organized by functional area. Each requirement uses a unique id
 
 **AS-1.** The module shall, given a target percent change X in total flows across the study area, solve for the scalar α that produces that target.
 
-*Context:* This corresponds to Section 5 of the methods. A transportation planner may specify "I want to model a 10% reduction in total commute trips" rather than choosing α directly.
+*Context:* This corresponds to the aggregate scenario analysis in the WFH scenario supplement. A transportation planner may specify "I want to model a 10% reduction in total commute trips" rather than choosing α directly.
 
-**AS-2.** The solver shall find α by applying a standard monotone root-finding method (e.g., bisection or Brent's method) to the function `f(α) = X(α) − X_target`, where X(α) is evaluated by running the full perturbation pipeline (Steps PC-1 through PC-10) for a given α and computing the resulting percent change in total flow. The search domain is `α ∈ [−1, α_max]`, where α_max is the largest breakpoint `(u_eo − w_eo) / w_eo` across all segments.
+**AS-2.** The solver shall find α from the closed-form relationship `X(α) = −Σ_eo m_eo · min(α·φ_eo, c_eo)`, where `φ_eo = w_eo/(1−w_eo)`, `c_eo = (u_eo−w_eo)/(1−w_eo)`, and `m_eo` is the trip-weighted segment share. The segment shares `m_eo` are accumulated in a single pass over the baseline flows; α is then recovered by one-dimensional root-finding (e.g., bisection) on the closed form over `α ∈ [−1, α_max]`, where α_max is the largest breakpoint `(u_eo − w_eo) / w_eo` across all segments. The full perturbation pipeline (Steps PC-1 through PC-10) is run once, after α is found, to produce the perturbed flows.
 
-*Context:* X(α) is monotonically decreasing (more WFH → fewer trips) and piecewise linear, so any monotone root-finder will converge reliably. Bisection guarantees convergence in ~40 iterations for ±0.001 precision; Brent's method typically converges in 10–15. Each iteration evaluates the full pipeline once, which is fast once demographics are loaded. Most scientific computing libraries provide robust implementations (e.g., `scipy.optimize.brentq` in Python).
+*Context:* X(α) is continuous, strictly decreasing (more WFH → fewer trips), and piecewise linear, so bisection on the closed form converges reliably. Evaluating the closed form is O(number of segments) and independent of the number of zone pairs, so the per-iteration cost is negligible and the expensive pipeline runs only once at the end rather than once per iteration. Most scientific computing libraries provide a suitable root-finder (e.g., `scipy.optimize.brentq` in Python).
 
-*Verification:* For a given study area, compute X(α) at α values of 0.0, 0.1, 0.2, ..., 2.0. Then use the solver to find α for each of those X values and confirm round-trip accuracy to within ±0.001.
+*Verification:* For a given study area, compute X(α) at α values of 0.0, 0.1, 0.2, ..., 2.0. Then use the solver to find α for each of those X values and confirm round-trip accuracy to within ±0.001. Separately, confirm the closed-form X(α) matches the full-pipeline percent change to within numerical tolerance.
 
-**AS-3.** The solver shall report infeasibility when the target X exceeds the maximum achievable reduction (i.e., when all segments are saturated at their upper bounds) or the maximum achievable increase (all segments at their lower bound of zero WFH).
+**AS-3.** The solver shall report infeasibility when the target X exceeds the maximum achievable reduction `X_min = −Σ_eo c_eo·m_eo` (all segments saturated at their upper bounds) or the maximum achievable increase `X_max = Σ_eo φ_eo·m_eo` at α = −1 (all segments at their lower bound of zero WFH).
 
 *Verification:* Request a target X that exceeds the feasible range. Confirm the solver returns an informative error rather than a nonsensical α.
 
-**AS-4.** The solver does not require an analytical slope formula. Each evaluation of X(α) runs the full perturbation pipeline, which correctly handles saturation bounds at every α value. The root-finder treats X(α) as a black-box monotone function.
+**AS-4.** The default solver uses the closed form of AS-2 and does not require the analytical slope. An exact breakpoint-walk alternative, which walks the piecewise-linear X(α) between segment breakpoints using the slope dX/dα, is provided as an optional implementation (`solve_for_alpha_exact`) and returns the same α.
 
-*Context:* A closed-form expression for dX/dα exists and is documented in the companion file `Derivation_Aggregate_Solver_Slope.md` for reference. It confirms that X(α) is piecewise linear and monotonically decreasing, which justifies the use of a simple root-finder. However, implementing the closed-form slope is not required — the root-finding approach is simpler, uses well-validated library code, and converges quickly enough for research use.
+*Context:* The closed-form expression and its slope dX/dα are documented in the companion file `Derivation_Aggregate_Solver_Slope.md`. The breakpoint walk is exact (no root-finding tolerance) and serves as an independent cross-check on the default bisection solver, but it is not required — the bisection approach is simpler and uses well-validated library code.
 
 ---
 

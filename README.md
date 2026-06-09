@@ -103,7 +103,7 @@ The perturbation proceeds in five stages for each origin-destination pair:
 
 **3. Perturbation weights.** The trip-reduction factor for each segment is W\_eo = 1 − Δw\_eo / (1−w\_eo). This is the fraction of non-WFH commuters who remain after the perturbation.
 
-**4. Directional Omega.** For a given origin *i* and destination *j*, the directional perturbation factor Ω\_ij = Σ\_e E\_ie · φ\_e(j), where E\_ie is the education share at residence *i* and φ\_e(j) = Σ\_o W\_eo · O\_jo is a precomputed vector combining industry shares at workplace *j* with the perturbation weights. This precomputation (computing φ once per workplace, then dotting with education shares per pair) reduces the per-pair work from O(100) multiplications to O(5).
+**4. Directional Omega.** For a given origin *i* and destination *j*, the directional perturbation factor Ω\_ij = Σ\_e E\_ie · θ\_e(j), where E\_ie is the education share at residence *i* and θ\_e(j) = Σ\_o W\_eo · O\_jo is a precomputed vector combining industry shares at workplace *j* with the perturbation weights. (This per-workplace vector is named `theta` in the code and the supplement to avoid colliding with the segment sensitivity φ\_eo.) This precomputation (computing θ once per workplace, then dotting with education shares per pair) reduces the per-pair work from O(100) multiplications to O(5).
 
 **5. Symmetric P.** The final perturbation factor is P\_ij = (L\_ij·Ω\_ij + L\_ji·Ω\_ji) / (L\_ij + L\_ji), a commute-weighted average of the two directional factors. This guarantees P\_ij = P\_ji. When no commute data exists for a pair (L\_ij + L\_ji = 0), the fallback is an equal-weight average: P = (Ω\_ij + Ω\_ji) / 2.
 
@@ -117,7 +117,7 @@ wfh_perturbation/
 ├── types.py             # Data types: WFHParams, SpatialData, PerturbationResult
 ├── config.py            # Default WFH parameters (CPS/Dingel-Neiman), B15003 crosswalk
 ├── computation.py       # Core math: joint propensity, deltas, weights, omega, P
-├── solver.py            # Aggregate scenario solver (Brent's method root-finding)
+├── solver.py            # Aggregate scenario solver (closed-form X(α); bisection)
 ├── spatial.py           # Tract-to-hex conversion, prepare_hex_data()
 ├── data_acquisition.py  # Census API (ACS B15003), LODES WAC/OD fetching
 ├── geo.py               # TIGER shapefiles, block centroids, H3 hex assignment
@@ -192,10 +192,10 @@ result = perturb_flows(alpha=0.25, ..., params=custom_params)
 ### Primary Functions
 
 **`perturb_flows(alpha, baseline_flows, edu_shares, ind_shares, commute_weights, ...)`**
-Compute perturbed flows for a given α. Returns a `PerturbationResult` with P, G, omega, phi, and metadata. All inputs must use the same spatial keys (H3 hex IDs).
+Compute perturbed flows for a given α. Returns a `PerturbationResult` with P, G, omega, theta, and metadata. All inputs must use the same spatial keys (H3 hex IDs).
 
 **`solve_and_perturb(target_percent_change, baseline_flows, edu_shares, ind_shares, commute_weights, ...)`**
-Find the α that achieves a target aggregate percent change in trips, then compute perturbed flows. Uses Brent's method root-finding on the monotone X(α) function. Raises `InfeasibleTargetError` if the target exceeds the feasible range.
+Find the α that achieves a target aggregate percent change in trips, then compute perturbed flows. Solves α from the closed-form relationship X(α) = −Σ m\_eo·min(α·φ\_eo, c\_eo) by bisection (the full pipeline runs once, after α is found), and raises `InfeasibleTargetError` if the target exceeds the feasible range. An exact breakpoint-walk alternative is available as `solve_for_alpha_exact`.
 
 ### Data Preparation
 
@@ -214,7 +214,7 @@ Fetch tract-level education, industry, and commute data. Returns `(edu, ind, com
 - `P`: dict mapping (i, j) -> perturbation factor
 - `G`: dict mapping (i, j) -> perturbed flow (G = T × P)
 - `omega`: dict mapping (i, j) -> directional Omega
-- `phi`: dict mapping unit_id -> ndarray(5,) precomputed phi vector
+- `theta`: dict mapping unit_id -> ndarray(5,) precomputed per-workplace vector θ\_e(s)
 - `alpha`: the α value used
 - `percent_change`: aggregate percent change in total flow (property)
 - `metadata`: dict with run info, data vintages, etc.

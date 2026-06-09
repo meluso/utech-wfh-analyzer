@@ -9,8 +9,8 @@ The core idea: different education-by-industry segments have different WFH prope
 Clone the repo and install in editable mode:
 
 ```bash
-git clone git@github.com:johnameluso/utech-wfh-perturbation.git
-cd utech-wfh-perturbation
+git clone https://github.com/meluso/utech-wfh-analyzer.git
+cd utech-wfh-analyzer
 pip install -e .
 ```
 
@@ -31,9 +31,11 @@ Education data comes from the Census Bureau's ACS API, which requires a free API
 
 ## Quick Start
 
+The module runs in two modes, and the choice depends on which quantity your scenario specifies. Use **target-X mode** when the outcome is specified: "model a 15% reduction in total trips," with the behavioral intensity $\alpha$ solved per region to achieve it. Use **fixed-alpha mode** when the behavioral scenario is specified and the outcome should vary by region: "WFH propensity rises 25% above baseline everywhere," applying the same shock to every city and letting each city's aggregate change $X$ emerge as the result. For cross-city comparisons, note these are different experimental designs: matching cities on $X$ imposes a different behavioral shock in each city, while matching on $\alpha$ holds the behavior constant and compares outcomes.
+
 ### Hex-native workflow
 
-This is the workflow for integration with the uTECH pipeline. Deep Gravity outputs hex-level flows, and this module perturbs them at hex level.
+This is the workflow for integration with the uTECH pipeline. Deep Gravity outputs hex-level flows, and this module perturbs them at hex level. Shown here in fixed-alpha mode; the target-X form follows below.
 
 ```python
 from wfh_perturbation import prepare_hex_data, perturb_flows
@@ -59,7 +61,7 @@ deep_gravity_flows = {
 
 # Step 3: Perturb
 result = perturb_flows(
-    alpha=0.25,                     # WFH intensity: 0 = no change, 1 = max WFH
+    alpha=0.25,                     # WFH intensity: 0 = no change; max varies by region
     baseline_flows=deep_gravity_flows,
     edu_shares=hex_edu,
     ind_shares=hex_ind,
@@ -74,9 +76,34 @@ for (origin, dest), G in result.G.items():
 print(f"Aggregate change: {result.percent_change:.2%}")
 ```
 
-### Target-based mode
+### Target-based mode (recommended): choosing X instead of alpha
 
-If you know the desired aggregate percent change in trips (e.g., -15%) but not the $\alpha$ value, the solver will find it:
+For scenario analysis you usually know the desired aggregate percent change in trips (X), not the $\alpha$ value, and the solver will find $\alpha$ for you. Each study area has its own achievable range of X, fixed by its labor mix, baseline WFH rates, and structural ceilings; a target outside that range raises `InfeasibleTargetError` rather than returning a nonsensical $\alpha$. The recommended pattern — for one city or many — is therefore to build the aggregate model first, read its feasible range, and solve targets against the model:
+
+```python
+import numpy as np
+from wfh_perturbation import build_aggregate_model, load_default_params, SpatialData
+
+sd = SpatialData(edu_shares=hex_edu, ind_shares=hex_ind, commute_weights=hex_commute)
+model = build_aggregate_model(load_default_params(), sd, deep_gravity_flows)
+
+x_min, x_max = model.feasible_X_range()  # e.g. (-0.45, +1.38); differs by city
+targets = np.linspace(x_min * 0.95, x_max * 0.95, 50)
+
+for target in targets:
+    alpha = model.solve(float(target))  # cheap: reuses the one-pass aggregate model
+    result = perturb_flows(
+        alpha=alpha,
+        baseline_flows=deep_gravity_flows,
+        edu_shares=hex_edu,
+        ind_shares=hex_ind,
+        commute_weights=hex_commute,
+    )
+```
+
+Building the model is a single pass over the baseline flows, and `model.solve` is pure arithmetic afterward, so a sweep costs one full pipeline run per target and nothing more. The per-city `feasible_X_range` is also worth reporting in its own right, since it characterizes how much WFH-induced change each region can structurally absorb. See `examples/hex_pipeline_example.py` for the full pattern.
+
+For a single target you already know is feasible, `solve_and_perturb` wraps the same solve in one call:
 
 ```python
 from wfh_perturbation import solve_and_perturb

@@ -118,7 +118,7 @@ Requirements are organized by functional area. Each requirement uses a unique id
 
 **SC-1.** The module shall accept an externally provided spatial conversion function (or module) that translates tract-level data to the target spatial units used by the flow model. The module shall not implement the conversion logic itself.
 
-*Context:* Census tracts and hex cells (e.g., H3) do not align — tracts have irregular boundaries while hexes tile the plane uniformly. The conversion involves areal interpolation, population-weighted allocation, or similar techniques whose design depends on decisions not yet finalized (see OD-5). By accepting the conversion as an external dependency, this module remains decoupled from those decisions.
+*Context:* Census tracts and hex cells (e.g., H3) do not align — tracts have irregular boundaries while hexes tile the plane uniformly. The conversion involves areal interpolation, population-weighted allocation, or similar techniques whose design depends on decisions not yet finalized (see OD-2). By accepting the conversion as an external dependency, this module remains decoupled from those decisions.
 
 *Verification:* Confirm the module accepts a conversion function as input and invokes it to transform tract-level vectors before computation. Confirm that substituting a different conversion function (e.g., identity for tract-to-tract validation vs. areal interpolation for tract-to-hex) produces appropriately different results.
 

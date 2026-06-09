@@ -33,6 +33,9 @@ from wfh_perturbation import (
     InfeasibleTargetError,
     WFHParams,
     SpatialData,
+    build_aggregate_model,
+    solve_for_alpha,
+    solve_for_alpha_exact,
 )
 
 
@@ -118,6 +121,27 @@ EX3 = {
     "expected_P": 0.6933,
     "expected_pct_change": -0.3067,
 }
+
+# ------------------------------------------------------------
+# Normalize fixture shares to sum to exactly 1.0.
+#
+# The hardcoded education/industry shares above are rounded to 6 decimals
+# (matching the reference workbook's displayed inputs), so each vector sums
+# to ~0.999999 rather than exactly 1.0. That rounding is a fixture artifact:
+# these are probability distributions that must sum to 1. Renormalizing
+# restores that property so the closed-form X(alpha) matches the full
+# pipeline to machine precision (see TestClosedFormSolver). It shifts the
+# example P_ij values by ~1e-6, far inside the end-to-end tolerances.
+# ------------------------------------------------------------
+def _normalize_shares(vec):
+    v = np.asarray(vec, dtype=np.float64)
+    return v / v.sum()
+
+
+for _ex in (EX1, EX2, EX3):
+    for _key in ("edu_A", "edu_B", "ind_A", "ind_B"):
+        _ex[_key] = _normalize_shares(_ex[_key])
+
 
 ALPHA = 0.25
 
@@ -476,6 +500,107 @@ class TestEdgeCases:
         assert abs(P_ab - P_uni) < 1e-12, (
             f"Bidirectional P={P_ab:.10f} differs from unidirectional P={P_uni:.10f}"
         )
+
+
+# ============================================================
+# Tests: Closed-form aggregate solver vs full pipeline (AS-2)
+# ============================================================
+
+class TestClosedFormSolver:
+    """The closed-form X(alpha) must reproduce the full perturbation pipeline.
+
+    With the fixture shares normalized to sum to 1, the closed form
+    X(alpha) = -sum_eo m_eo * max(-phi_eo, min(alpha*phi_eo, c_eo)) is
+    algebraically identical to (sum G - sum T) / sum T from run_perturbation,
+    so they agree to machine precision (well within 1e-9). Before normalization
+    the fixtures carried a ~1.5e-7 gap from six-decimal rounding; this suite
+    locks in the exact agreement rather than loosening the tolerance.
+    """
+
+    @pytest.fixture
+    def params(self):
+        return WFHParams(w_e=W_E, u_e=U_E, w_o=W_O, u_o=U_O)
+
+    def _multi_example(self):
+        """Combine all three examples into one richer study area."""
+        edu, ind, cw, flows = {}, {}, {}, {}
+        for ex in (EX1, EX2, EX3):
+            e, i, c, f = build_example_inputs(ex)
+            edu.update(e)
+            ind.update(i)
+            cw.update(c)
+            flows.update(f)
+        return edu, ind, cw, flows
+
+    def _model(self, params):
+        edu, ind, cw, flows = self._multi_example()
+        sd = SpatialData(edu_shares=edu, ind_shares=ind, commute_weights=cw)
+        return build_aggregate_model(params, sd, flows), edu, ind, cw, flows
+
+    def test_closed_form_matches_pipeline(self, params):
+        """AS-2: closed-form X(alpha) == pipeline percent change to 1e-9."""
+        model, edu, ind, cw, flows = self._model(params)
+        alphas = [-1.0, -0.5, -0.1, 0.0, 0.1, 0.25, 0.5, 1.0, 2.0,
+                  model.alpha_full_saturation]
+        worst = 0.0
+        for a in alphas:
+            x_closed = model.X_of_alpha(a)
+            x_pipe = perturb_flows(a, flows, edu, ind, cw, params).percent_change
+            worst = max(worst, abs(x_closed - x_pipe))
+            assert abs(x_closed - x_pipe) < 1e-9, (
+                f"alpha={a}: closed-form X={x_closed:.12f} vs pipeline {x_pipe:.12f}"
+            )
+        print(f"\nWorst |closed-form - pipeline| over alpha grid = {worst:.2e}")
+
+    def test_feasibility_endpoints(self, params):
+        """AS-3: X_max (alpha=-1) and X_min (full saturation) match the pipeline."""
+        model, edu, ind, cw, flows = self._model(params)
+
+        x_pipe_max = perturb_flows(-1.0, flows, edu, ind, cw, params).percent_change
+        assert abs(model.X_max - x_pipe_max) < 1e-9
+
+        x_pipe_min = perturb_flows(
+            model.alpha_full_saturation, flows, edu, ind, cw, params
+        ).percent_change
+        assert abs(model.X_min - x_pipe_min) < 1e-9
+
+        # Feasible domain straddles zero: reduction side negative, increase side positive.
+        assert model.X_min < 0.0 < model.X_max
+
+    def test_solve_round_trip(self, params):
+        """Solving for a target X, then running the pipeline, recovers that X."""
+        model, edu, ind, cw, flows = self._model(params)
+        for target in [0.1, -0.05, -0.1, -0.2, -0.3]:
+            if not (model.X_min < target < model.X_max):
+                continue
+            alpha = model.solve(target, tol=1e-12)
+            x_pipe = perturb_flows(alpha, flows, edu, ind, cw, params).percent_change
+            assert abs(x_pipe - target) < 1e-6, (
+                f"target={target}: achieved {x_pipe:.10f} via alpha={alpha:.10f}"
+            )
+
+    def test_bisection_matches_exact_walk(self, params):
+        """The default bisection solver and the exact breakpoint walk agree on alpha."""
+        _, edu, ind, cw, flows = self._model(params)
+        sd = SpatialData(edu_shares=edu, ind_shares=ind, commute_weights=cw)
+        model = build_aggregate_model(params, sd, flows)
+        for target in [0.1, -0.05, -0.15, -0.3]:
+            if not (model.X_min < target < model.X_max):
+                continue
+            a_bis = solve_for_alpha(target, params, sd, flows, tol=1e-12)
+            a_exact = solve_for_alpha_exact(target, params, sd, flows)
+            assert abs(a_bis - a_exact) < 1e-6, (
+                f"target={target}: bisection alpha={a_bis:.10f} vs exact {a_exact:.10f}"
+            )
+
+    def test_infeasible_target_raises(self, params):
+        """A target beyond the feasible range raises InfeasibleTargetError."""
+        model, edu, ind, cw, flows = self._model(params)
+        sd = SpatialData(edu_shares=edu, ind_shares=ind, commute_weights=cw)
+        with pytest.raises(InfeasibleTargetError):
+            solve_for_alpha(model.X_min - 0.05, params, sd, flows)
+        with pytest.raises(InfeasibleTargetError):
+            solve_for_alpha(model.X_max + 0.05, params, sd, flows)
 
 
 # ============================================================

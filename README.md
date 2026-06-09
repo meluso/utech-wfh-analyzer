@@ -31,11 +31,11 @@ Education data comes from the Census Bureau's ACS API, which requires a free API
 
 ## Quick Start
 
-The module runs in two modes, and the choice depends on which quantity your scenario specifies. Use **target-X mode** when the outcome is specified: "model a 15% reduction in total trips," with the behavioral intensity $\alpha$ solved per region to achieve it. Use **fixed-alpha mode** when the behavioral scenario is specified and the outcome should vary by region: "WFH propensity rises 25% above baseline everywhere," applying the same shock to every city and letting each city's aggregate change $X$ emerge as the result. For cross-city comparisons, note these are different experimental designs: matching cities on $X$ imposes a different behavioral shock in each city, while matching on $\alpha$ holds the behavior constant and compares outcomes.
+The module runs in two modes, and the choice depends on which quantity your scenario specifies. Use **fixed-alpha mode** when the behavioral scenario is specified and the outcome should vary by region: "WFH propensity rises 25% above baseline everywhere" (e.g., a nationwide fuel-price shock or telework policy), applying the same shock to every city and letting each city's aggregate change $X$ emerge as the result. This is the mode for cross-city scenario analysis. Use **target-X mode** when the outcome is specified for a given study area: "model a 15% reduction in total trips here," with the behavioral intensity $\alpha$ solved to achieve it. These are different experimental designs: matching cities on $\alpha$ holds the behavior constant and compares outcomes, while matching on $X$ would impose a different behavioral shock in each city.
 
 ### Hex-native workflow
 
-This is the workflow for integration with the uTECH pipeline. Deep Gravity outputs hex-level flows, and this module perturbs them at hex level. Shown here in fixed-alpha mode; the target-X form follows below.
+This is the workflow for integration with the uTECH pipeline. Deep Gravity outputs hex-level flows, and this module perturbs them at hex level. Shown here as a single fixed-alpha call; the sweep patterns follow below.
 
 ```python
 from wfh_perturbation import prepare_hex_data, perturb_flows
@@ -76,49 +76,64 @@ for (origin, dest), G in result.G.items():
 print(f"Aggregate change: {result.percent_change:.2%}")
 ```
 
-### Target-based mode (recommended): choosing X instead of alpha
+### Sweeping alpha: uniform shocks across cities (recommended for scenario analysis)
 
-For scenario analysis you usually know the desired aggregate percent change in trips (X), not the $\alpha$ value, and the solver will find $\alpha$ for you. Each study area has its own achievable range of X, fixed by its labor mix, baseline WFH rates, and structural ceilings; a target outside that range raises `InfeasibleTargetError` rather than returning a nonsensical $\alpha$. The recommended pattern — for one city or many — is therefore to build the aggregate model first, read its feasible range, and solve targets against the model:
+To model a nationwide exogenous shock or uniform policy, apply the same $\alpha$ grid to every city and compare the resulting per-city outcomes. The closed-form aggregate model makes this nearly free at the aggregate level: `X_of_alpha` evaluates a city's response without running the per-pair pipeline, so you can compute every city's full response curve $X(\alpha)$ instantly and run the expensive pipeline only at the scenario alphas you want flow maps for:
 
 ```python
 import numpy as np
 from wfh_perturbation import build_aggregate_model, load_default_params, SpatialData
 
+alphas = np.linspace(0.0, 1.0, 101)      # uniform behavioral shock grid
+
+# Per city: build the model once (a single pass over that city's flows)
 sd = SpatialData(edu_shares=hex_edu, ind_shares=hex_ind, commute_weights=hex_commute)
 model = build_aggregate_model(load_default_params(), sd, deep_gravity_flows)
 
-x_min, x_max = model.feasible_X_range()  # e.g. (-0.45, +1.38); differs by city
-targets = np.linspace(x_min * 0.95, x_max * 0.95, 50)
+# The city's entire aggregate response curve — no pipeline runs
+X_curve = [model.X_of_alpha(float(a)) for a in alphas]
 
-for target in targets:
-    alpha = model.solve(float(target))  # cheap: reuses the one-pass aggregate model
-    result = perturb_flows(
-        alpha=alpha,
-        baseline_flows=deep_gravity_flows,
-        edu_shares=hex_edu,
-        ind_shares=hex_ind,
-        commute_weights=hex_commute,
-    )
-```
-
-Building the model is a single pass over the baseline flows, and `model.solve` is pure arithmetic afterward, so a sweep costs one full pipeline run per target and nothing more. The per-city `feasible_X_range` is also worth reporting in its own right, since it characterizes how much WFH-induced change each region can structurally absorb. See `examples/hex_pipeline_example.py` for the full pattern.
-
-For a single target you already know is feasible, `solve_and_perturb` wraps the same solve in one call:
-
-```python
-from wfh_perturbation import solve_and_perturb
-
-result = solve_and_perturb(
-    target_percent_change=-0.15,    # -15% total trips
+# Full per-pair flows only at the scenario alpha(s) of interest
+result = perturb_flows(
+    alpha=0.25,                          # e.g., a sustained ~50% fuel-price spike
     baseline_flows=deep_gravity_flows,
     edu_shares=hex_edu,
     ind_shares=hex_ind,
     commute_weights=hex_commute,
 )
-
-print(f"Solved α = {result.alpha:.4f}")
-print(f"Achieved change: {result.percent_change:.2%}")
 ```
+
+Repeat per city with the same `alphas` grid. The per-city `X_curve`s are directly comparable because the behavioral shock is held constant; differences between cities reflect their labor mix and baseline WFH rates, not the experiment design.
+
+### Targeting a single X value
+
+When the outcome is specified for one study area ("model a 15% reduction in trips here"), solve for the $\alpha$ that achieves it. Each region has its own achievable range of X, fixed by its labor mix, baseline WFH rates, and structural ceilings; a target outside that range raises `InfeasibleTargetError` rather than returning a nonsensical $\alpha$, so check the range first:
+
+```python
+x_min, x_max = model.feasible_X_range()  # e.g. (-0.45, +1.38); differs by city
+alpha = model.solve(-0.15)               # alpha achieving a 15% reduction
+result = perturb_flows(alpha=alpha, baseline_flows=deep_gravity_flows,
+                       edu_shares=hex_edu, ind_shares=hex_ind,
+                       commute_weights=hex_commute)
+```
+
+For a single target you already know is feasible, `solve_and_perturb` wraps the same solve and the pipeline run in one call and returns the result directly (`result.alpha` holds the solved value). The per-city `feasible_X_range` is also worth reporting in its own right, since it characterizes how much WFH-induced change each region can structurally absorb.
+
+### Sweeping X: even resolution in outcome space
+
+Sweep X (rather than $\alpha$) when the outcome axis is what a human will scan. The visualization tool is the in-repo example: its slider operates in percent-change space, so `scripts/precompute_viz_data.py` precomputes snapshots evenly spaced across the feasible X range, giving the slider uniform resolution instead of crowding steps where the response curve saturates. The same pattern applies to plotting distributional metrics against achieved outcome:
+
+```python
+targets = np.linspace(x_min * 0.95, x_max * 0.95, 50)
+
+for target in targets:
+    alpha = model.solve(float(target))   # cheap: reuses the one-pass aggregate model
+    result = perturb_flows(alpha=alpha, baseline_flows=deep_gravity_flows,
+                           edu_shares=hex_edu, ind_shares=hex_ind,
+                           commute_weights=hex_commute)
+```
+
+Note this holds the outcome, not the behavior, constant across runs — appropriate within one city, but not for cross-city comparisons (see the alpha sweep above). See `examples/hex_pipeline_example.py` for runnable versions of these patterns.
 
 ## How It Works
 
